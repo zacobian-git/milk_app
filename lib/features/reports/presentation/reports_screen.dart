@@ -1,16 +1,22 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:milk_app/core/providers/ledger_providers.dart';
 import 'package:milk_app/core/utils/formatters.dart';
-import 'package:milk_app/domain/models/billing_models.dart';
+import 'package:milk_app/core/widgets/common_widgets.dart';
+import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/domain/billing/billing_calculator.dart';
+import 'package:milk_app/domain/models/billing_models.dart';
 import 'package:milk_app/domain/models/ledger_enums.dart';
+import 'package:milk_app/domain/utils/ledger_dates.dart';
 import 'package:milk_app/features/reports/data/bill_pdf_service.dart';
 import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/features/reports/presentation/monthly_insights.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
+
+enum _ShareAction { pdf, print, text }
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -20,9 +26,16 @@ class ReportsScreen extends ConsumerStatefulWidget {
 }
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
-  int? _vendorId;
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
-  bool _sharing = false;
+  DateTime _month = monthStart(DateTime.now());
+  _ShareAction? _busyAction;
+
+  void _setMonth(DateTime month) {
+    final target = monthStart(month);
+    if (target != _month) {
+      HapticFeedback.selectionClick();
+      setState(() => _month = target);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,30 +46,23 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       appBar: AppBar(title: Text(strings.tabReports)),
       body: vendors.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => Center(
-          child: TextButton(
-            onPressed: () => ref.invalidate(activeVendorsProvider),
-            child: Text(strings.retry),
-          ),
-        ),
+        error: (error, stackTrace) =>
+            ErrorState(onRetry: () => ref.invalidate(activeVendorsProvider)),
         data: (items) {
           if (items.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(strings.noVendors),
-                  FilledButton(
-                    onPressed: () => context.push('/vendors/new'),
-                    child: Text(strings.addVendor),
-                  ),
-                ],
-              ),
+            return EmptyState(
+              icon: Icons.receipt_long_rounded,
+              title: strings.noVendors,
+              message: strings.addFirstVendor,
+              actionLabel: strings.addVendor,
+              actionIcon: Icons.person_add_alt_1,
+              onAction: () => context.push('/vendors/new'),
             );
           }
-          final vendor = items.any((item) => item.id == _vendorId)
-              ? items.firstWhere((item) => item.id == _vendorId)
-              : items.first;
+          final vendor = resolveSelectedVendor(
+            items,
+            ref.watch(selectedVendorIdProvider),
+          );
           final selection = (
             vendorId: vendor.id,
             year: _month.year,
@@ -65,47 +71,21 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           final report = ref.watch(monthlyReportProvider(selection));
           return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: DropdownButtonFormField<int>(
-                  initialValue: vendor.id,
-                  decoration: InputDecoration(labelText: strings.selectVendor),
-                  items: [
-                    for (final item in items)
-                      DropdownMenuItem(value: item.id, child: Text(item.name)),
-                  ],
-                  onChanged: (value) => setState(() => _vendorId = value),
-                ),
-              ),
-              _MonthPicker(
-                month: _month,
-                locale: strings.localeName,
-                selectLabel: strings.selectMonth,
-                onChanged: (value) => setState(() => _month = value),
-              ),
+              VendorSelector(vendors: items, selected: vendor),
+              _MonthPicker(month: _month, onChanged: _setMonth),
               Expanded(
                 child: report.when(
+                  skipLoadingOnReload: true,
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
-                  error: (error, stackTrace) => Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(strings.errorOccurred),
-                        TextButton(
-                          onPressed: () =>
-                              ref.invalidate(monthlyReportProvider(selection)),
-                          child: Text(strings.retry),
-                        ),
-                      ],
-                    ),
+                  error: (error, stackTrace) => ErrorState(
+                    onRetry: () =>
+                        ref.invalidate(vendorLedgerProvider(vendor.id)),
                   ),
                   data: (data) => _ReportBody(
                     report: data,
-                    locale: strings.localeName,
-                    strings: strings,
-                    sharing: _sharing,
-                    onShare: () => _share(data),
+                    busyAction: _busyAction,
+                    onShare: (action) => _share(action, data),
                   ),
                 ),
               ),
@@ -116,142 +96,306 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     );
   }
 
-  Future<void> _share(MonthlyReportData report) async {
-    setState(() => _sharing = true);
+  Future<void> _share(_ShareAction action, MonthlyReportData report) async {
+    if (_busyAction != null) {
+      return;
+    }
+    setState(() => _busyAction = action);
     final strings = AppLocalizations.of(context)!;
+    const service = BillPdfService();
     try {
-      await const BillPdfService().shareBill(report, strings);
+      switch (action) {
+        case _ShareAction.pdf:
+          await service.shareBill(report, strings);
+        case _ShareAction.print:
+          await service.printBill(report, strings);
+        case _ShareAction.text:
+          await service.shareSummaryText(report, strings);
+      }
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'share monthly bill',
-        ),
-      );
+      reportUiError(error, stackTrace, 'share monthly bill');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
+        showAppSnackBar(context, strings.errorOccurred);
       }
     } finally {
       if (mounted) {
-        setState(() => _sharing = false);
+        setState(() => _busyAction = null);
       }
     }
   }
 }
 
 class _MonthPicker extends StatelessWidget {
-  const _MonthPicker({
-    required this.month,
-    required this.locale,
-    required this.selectLabel,
-    required this.onChanged,
-  });
+  const _MonthPicker({required this.month, required this.onChanged});
 
   final DateTime month;
-  final String locale;
-  final String selectLabel;
   final ValueChanged<DateTime> onChanged;
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      IconButton(
-        tooltip: selectLabel,
-        onPressed: () => onChanged(DateTime(month.year, month.month - 1)),
-        icon: const Icon(Icons.chevron_left),
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: strings.previousMonth,
+            onPressed: () => onChanged(DateTime(month.year, month.month - 1)),
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          Expanded(
+            child: TextButton.icon(
+              onPressed: () async {
+                final selected = await showDialog<DateTime>(
+                  context: context,
+                  builder: (context) => _MonthGridDialog(initial: month),
+                );
+                if (selected != null) {
+                  onChanged(selected);
+                }
+              },
+              icon: const Icon(Icons.calendar_month_outlined, size: 20),
+              label: AnimatedSwitcher(
+                duration: kShortAnimation,
+                child: Text(
+                  DateFormat.yMMMM(strings.localeName).format(month),
+                  key: ValueKey(month),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: strings.nextMonth,
+            onPressed: () => onChanged(DateTime(month.year, month.month + 1)),
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
       ),
-      TextButton(
-        onPressed: () async {
-          final selected = await showDatePicker(
-            context: context,
-            initialDate: month,
-            firstDate: DateTime(2000),
-            lastDate: DateTime(2100),
-            initialDatePickerMode: DatePickerMode.year,
-          );
-          if (selected != null) {
-            onChanged(DateTime(selected.year, selected.month));
-          }
-        },
-        child: Text(
-          DateFormat.yMMMM(locale).format(month),
-          style: Theme.of(context).textTheme.titleLarge,
+    );
+  }
+}
+
+/// A compact year + 12-month grid; quicker than a full date picker.
+class _MonthGridDialog extends StatefulWidget {
+  const _MonthGridDialog({required this.initial});
+
+  final DateTime initial;
+
+  @override
+  State<_MonthGridDialog> createState() => _MonthGridDialogState();
+}
+
+class _MonthGridDialogState extends State<_MonthGridDialog> {
+  late int _year = widget.initial.year;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
+    final now = DateTime.now();
+    return AlertDialog(
+      title: Row(
+        children: [
+          IconButton(
+            onPressed: _year > 2000 ? () => setState(() => _year--) : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+          ),
+          Expanded(child: Center(child: Text('$_year'))),
+          IconButton(
+            onPressed: _year < 2100 ? () => setState(() => _year++) : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 300,
+        child: GridView.count(
+          shrinkWrap: true,
+          crossAxisCount: 3,
+          mainAxisSpacing: 8,
+          crossAxisSpacing: 8,
+          childAspectRatio: 2,
+          children: [
+            for (var month = 1; month <= 12; month++)
+              _monthButton(
+                context,
+                DateTime(_year, month),
+                label: DateFormat.MMM(
+                  strings.localeName,
+                ).format(DateTime(_year, month)),
+                selected:
+                    _year == widget.initial.year &&
+                    month == widget.initial.month,
+                current: _year == now.year && month == now.month,
+                colors: colors,
+              ),
+          ],
         ),
       ),
-      IconButton(
-        tooltip: selectLabel,
-        onPressed: () => onChanged(DateTime(month.year, month.month + 1)),
-        icon: const Icon(Icons.chevron_right),
-      ),
-    ],
-  );
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(strings.cancel),
+        ),
+      ],
+    );
+  }
+
+  Widget _monthButton(
+    BuildContext context,
+    DateTime value, {
+    required String label,
+    required bool selected,
+    required bool current,
+    required ColorScheme colors,
+  }) {
+    final style = selected
+        ? FilledButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 40),
+          )
+        : OutlinedButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 40),
+            side: BorderSide(
+              color: current ? colors.primary : colors.outlineVariant,
+            ),
+          );
+    void select() => Navigator.pop(context, value);
+    return selected
+        ? FilledButton(style: style, onPressed: select, child: Text(label))
+        : OutlinedButton(style: style, onPressed: select, child: Text(label));
+  }
 }
 
 class _ReportBody extends StatelessWidget {
   const _ReportBody({
     required this.report,
-    required this.locale,
-    required this.strings,
-    required this.sharing,
+    required this.busyAction,
     required this.onShare,
   });
 
   final MonthlyReportData report;
-  final String locale;
-  final AppLocalizations strings;
-  final bool sharing;
-  final VoidCallback onShare;
+  final _ShareAction? busyAction;
+  final ValueChanged<_ShareAction> onShare;
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final locale = strings.localeName;
     final summary = report.summary;
+    final closing = summary.closingBalancePaise;
+
+    Widget actionIcon(_ShareAction action, IconData icon) => busyAction == action
+        ? const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(icon);
+
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
       children: [
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _SummaryRow(
-                  label: strings.totalLitres,
-                  value:
+                Text(
+                  closing < 0 ? strings.advance : strings.closingBalance,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  formatMoney(closing.abs(), locale),
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: closing > 0
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _StatGrid(
+                  stats: [
+                    (
+                      strings.totalLitres,
                       '${formatLitres(summary.totalQuantityMl)} ${strings.litreUnit}',
-                ),
-                _SummaryRow(
-                  label: strings.totalAmount,
-                  value: formatMoney(summary.totalAmountPaise, locale),
-                ),
-                _SummaryRow(
-                  label: strings.deliveredDays,
-                  value: summary.deliveredDays.toString(),
-                ),
-                _SummaryRow(
-                  label: strings.skippedDays,
-                  value: summary.skippedDays.toString(),
-                ),
-                _SummaryRow(
-                  label: strings.paymentsThisMonth,
-                  value: formatMoney(summary.paidPaise, locale),
-                ),
-                _SummaryRow(
-                  label: strings.carriedForward,
-                  value: formatMoney(summary.carriedForwardPaise, locale),
-                ),
-                const Divider(),
-                _SummaryRow(
-                  label: summary.closingBalancePaise < 0
-                      ? strings.advance
-                      : strings.closingBalance,
-                  value: formatMoney(summary.closingBalancePaise.abs(), locale),
-                  emphasized: true,
+                    ),
+                    (
+                      strings.totalAmount,
+                      formatMoney(summary.totalAmountPaise, locale),
+                    ),
+                    (strings.deliveredDays, '${summary.deliveredDays}'),
+                    (strings.skippedDays, '${summary.skippedDays}'),
+                    (
+                      strings.averagePerDay,
+                      '${formatLitres(report.averageDailyMl)} ${strings.litreUnit}',
+                    ),
+                    (
+                      strings.paymentsThisMonth,
+                      formatMoney(summary.paidPaise, locale),
+                    ),
+                    (
+                      strings.carriedForward,
+                      formatMoney(summary.carriedForwardPaise, locale),
+                    ),
+                    (
+                      strings.currentRate,
+                      report.currentRatePaise == null
+                          ? '—'
+                          : formatMoney(report.currentRatePaise!, locale),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: busyAction == null ? () => onShare(_ShareAction.pdf) : null,
+          icon: actionIcon(_ShareAction.pdf, Icons.picture_as_pdf_outlined),
+          label: Text(strings.sharePdf),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: busyAction == null
+                    ? () => onShare(_ShareAction.text)
+                    : null,
+                icon: actionIcon(_ShareAction.text, Icons.chat_outlined),
+                label: Text(
+                  strings.shareWhatsApp,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: busyAction == null
+                    ? () => onShare(_ShareAction.print)
+                    : null,
+                icon: actionIcon(_ShareAction.print, Icons.print_outlined),
+                label: Text(
+                  strings.printBill,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         MonthlyInsights(
@@ -259,103 +403,121 @@ class _ReportBody extends StatelessWidget {
           locale: locale,
           strings: strings,
         ),
-        const SizedBox(height: 8),
-        Text(strings.dayByDay, style: Theme.of(context).textTheme.titleLarge),
+        SectionHeader(strings.dayByDay),
         if (report.entries.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(strings.noReportData),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(strings.noReportData),
+            ),
           )
         else
-          for (final entry in report.entries)
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  entry.status == DailyEntryStatus.skipped
-                      ? Icons.close
-                      : entry.status == DailyEntryStatus.custom
-                      ? Icons.water_drop_outlined
-                      : Icons.check,
-                  color: entry.status == DailyEntryStatus.skipped
-                      ? Theme.of(context).colorScheme.error
-                      : entry.status == DailyEntryStatus.custom
-                      ? Colors.orange.shade700
-                      : Theme.of(context).colorScheme.primary,
-                ),
-                title: Text(formatDate(entry.date, locale)),
-                subtitle: Text(
-                  '${formatLitres(entry.quantityMl)} ${strings.litreUnit} · '
-                  '${strings.rate}: ${formatMoney(entry.rateUsedPaise, locale)}',
-                ),
-                trailing: Text(
-                  formatMoney(
-                    amountForEntry(
-                      BillingEntry(
-                        date: entry.date,
-                        quantityMl: entry.quantityMl,
-                        rateUsedPaise: entry.rateUsedPaise,
-                        status: entry.status,
-                      ),
-                    ),
-                    locale,
-                  ),
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
+          Card(
+            child: Column(
+              children: [
+                for (var index = 0; index < report.entries.length; index++) ...[
+                  if (index > 0) const Divider(height: 1, indent: 64),
+                  _EntryRow(entry: report.entries[index]),
+                ],
+              ],
             ),
-        const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: sharing ? null : onShare,
-          icon: sharing
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.picture_as_pdf_outlined),
-          label: Text(strings.sharePdf),
-        ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: sharing ? null : onShare,
-          icon: const Icon(Icons.share_outlined),
-          label: Text(strings.shareWhatsApp),
-        ),
+          ),
+        if (report.payments.isNotEmpty) ...[
+          SectionHeader(strings.paymentsThisMonth),
+          Card(
+            child: Column(
+              children: [
+                for (final payment in report.payments)
+                  ListTile(
+                    leading: Icon(paymentModeIcon(payment.mode)),
+                    title: Text(formatDate(payment.date, locale)),
+                    subtitle: Text(
+                      [
+                        paymentModeLabel(strings, payment.mode),
+                        if (payment.note?.isNotEmpty ?? false) payment.note!,
+                      ].join(' · '),
+                    ),
+                    trailing: Text(
+                      formatMoney(payment.amountPaise, locale),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
 }
 
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({
-    required this.label,
-    required this.value,
-    this.emphasized = false,
-  });
+class _StatGrid extends StatelessWidget {
+  const _StatGrid({required this.stats});
 
-  final String label;
-  final String value;
-  final bool emphasized;
+  final List<(String, String)> stats;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: emphasized ? Theme.of(context).textTheme.titleMedium : null,
-          ),
-        ),
-        Text(
-          value,
-          style: emphasized
-              ? Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800)
-              : null,
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth > 520 ? 4 : 2;
+      final width = (constraints.maxWidth - (columns - 1) * 12) / columns;
+      return Wrap(
+        spacing: 12,
+        runSpacing: 14,
+        children: [
+          for (final (label, value) in stats)
+            SizedBox(
+              width: width,
+              child: StatTile(label: label, value: value),
+            ),
+        ],
+      );
+    },
   );
+}
+
+class _EntryRow extends StatelessWidget {
+  const _EntryRow({required this.entry});
+
+  final DailyEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final locale = strings.localeName;
+    final color = entryStatusColor(context, entry.status);
+    final isSkipped = entry.status == DailyEntryStatus.skipped;
+    return ListTile(
+      dense: true,
+      leading: CircleAvatar(
+        radius: 16,
+        backgroundColor: color.withValues(alpha: 0.14),
+        child: Icon(entryStatusIcon(entry.status), size: 18, color: color),
+      ),
+      title: Text(DateFormat.MMMEd(locale).format(entry.date)),
+      subtitle: Text(
+        isSkipped
+            ? strings.skipped
+            : '${formatLitres(entry.quantityMl)} ${strings.litreUnit} × '
+                  '${formatMoney(entry.rateUsedPaise, locale)}'
+                  '${entry.note?.isNotEmpty ?? false ? ' · ${entry.note}' : ''}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: Text(
+        formatMoney(
+          amountForEntry(
+            BillingEntry(
+              date: entry.date,
+              quantityMl: entry.quantityMl,
+              rateUsedPaise: entry.rateUsedPaise,
+              status: entry.status,
+            ),
+          ),
+          locale,
+        ),
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
 }

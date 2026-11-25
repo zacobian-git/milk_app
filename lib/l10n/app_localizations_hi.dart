@@ -501,4 +501,98 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get appLocked => 'आपका हिसाब लॉक है।';
+
+  @override
+  String get totalDue => 'कुल बकाया';
+
+  @override
+  String get totalAdvance => 'कुल एडवांस';
+
+  @override
+  String get markAllDelivered => 'सबका दूध आ गया';
+
+  @override
+  String get allDoneToday => 'आज का सारा हिसाब लिख दिया';
+
+  @override
+  String pendingToday(int count) {
+    return 'आज $count का हिसाब बाकी';
+  }
+
+  @override
+  String get editTodayEntry => 'आज की एंट्री बदलें';
+
+  @override
+  String get date => 'तारीख';
+
+  @override
+  String get status => 'स्थिति';
+
+  @override
+  String get printBill => 'प्रिंट या PDF सेव करें';
+
+  @override
+  String get averagePerDay => 'रोज़ का औसत';
+
+  @override
+  String get archivedVendors => 'हटाए गए दूधवाले';
+
+  @override
+  String get restoreVendor => 'वापस लाएँ';
+
+  @override
+  String get vendorRestored => 'दूधवाला वापस जोड़ा गया';
+
+  @override
+  String get deleteRateQuestion => 'यह रेट हटाएँ? पहले से लिखी एंट्री का रेट नहीं बदलेगा।';
+
+  @override
+  String get cannotDeleteOnlyRate => 'कम से कम एक रेट ज़रूरी है।';
+
+  @override
+  String get rateDeleted => 'रेट हटाया गया';
+
+  @override
+  String get currentRate => 'अभी का रेट';
+
+  @override
+  String get generalSection => 'सामान्य';
+
+  @override
+  String get remindersSection => 'याद दिलाना';
+
+  @override
+  String get dataSection => 'बैकअप';
+
+  @override
+  String get securitySection => 'सुरक्षा';
+
+  @override
+  String get quantityStep => 'मात्रा का अंतर';
+
+  @override
+  String get quantityStepHint => '+ और − दबाने पर मात्रा कितनी बदले';
+
+  @override
+  String get notSet => 'तय नहीं';
+
+  @override
+  String get clear => 'हटाएँ';
+
+  @override
+  String get markRangeTitle => 'कई दिन एक साथ भरें';
+
+  @override
+  String get markRangeDelivered => 'जिन दिनों का हिसाब नहीं लिखा, उनमें दूध आया';
+
+  @override
+  String get markRangeSkipped => 'जिन दिनों का हिसाब नहीं लिखा, उनमें दूध नहीं आया (छुट्टी)';
+
+  @override
+  String get bulkSkipQuestion => 'चुने गए दिनों में जिन दिनों का हिसाब नहीं लिखा, उन्हें \'दूध नहीं आया\' लिखें?';
+
+  @override
+  String billGeneratedOn(Object date) {
+    return '$date को बनाया गया';
+  }
 }

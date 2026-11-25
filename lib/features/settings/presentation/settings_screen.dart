@@ -9,7 +9,6 @@ import 'package:milk_app/features/settings/application/reminder_actions.dart';
 import 'package:milk_app/features/settings/data/backup_service.dart';
 import 'package:milk_app/data/database/database_providers.dart';
 import 'package:milk_app/core/providers/ledger_providers.dart';
-import 'package:milk_app/features/payments/data/payments_provider.dart';
 import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
 
@@ -43,115 +42,177 @@ class _SettingsList extends ConsumerWidget {
     final strings = AppLocalizations.of(context)!;
     final controller = ref.read(appSettingsProvider.notifier);
 
+    final theme = Theme.of(context);
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
       children: [
-        DropdownButtonFormField<String>(
-          initialValue: settings.languageCode,
-          decoration: InputDecoration(labelText: strings.language),
-          items: [
-            DropdownMenuItem(value: 'hi', child: Text(strings.hindi)),
-            DropdownMenuItem(value: 'en', child: Text(strings.english)),
+        _Section(
+          title: strings.generalSection,
+          children: [
+            _LabeledControl(
+              icon: Icons.translate_rounded,
+              label: strings.language,
+              child: SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(value: 'hi', label: Text(strings.hindi)),
+                  ButtonSegment(value: 'en', label: Text(strings.english)),
+                ],
+                selected: {settings.languageCode},
+                onSelectionChanged: (value) => _runSetting(
+                  context,
+                  () => controller.setLanguage(value.first),
+                ),
+              ),
+            ),
+            _LabeledControl(
+              icon: Icons.palette_outlined,
+              label: strings.theme,
+              child: SegmentedButton<ThemeMode>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: ThemeMode.system,
+                    icon: const Icon(Icons.brightness_auto_rounded),
+                    tooltip: strings.systemTheme,
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.light,
+                    icon: const Icon(Icons.light_mode_rounded),
+                    tooltip: strings.lightTheme,
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.dark,
+                    icon: const Icon(Icons.dark_mode_rounded),
+                    tooltip: strings.darkTheme,
+                  ),
+                ],
+                selected: {settings.themeMode},
+                onSelectionChanged: (value) => _runSetting(
+                  context,
+                  () => controller.setTheme(value.first),
+                ),
+              ),
+            ),
+            _LabeledControl(
+              icon: Icons.straighten_rounded,
+              label: strings.quantityStep,
+              hint: strings.quantityStepHint,
+              child: SegmentedButton<int>(
+                showSelectedIcon: false,
+                segments: [
+                  for (final step in AppSettingsController.quantitySteps)
+                    ButtonSegment(value: step, label: Text('$step ml')),
+                ],
+                selected: {settings.quantityStepMl},
+                onSelectionChanged: (value) => _runSetting(
+                  context,
+                  () => controller.setQuantityStep(value.first),
+                ),
+              ),
+            ),
           ],
-          onChanged: (value) {
-            if (value != null) {
-              _runSetting(context, () => controller.setLanguage(value));
-            }
-          },
+        ),
+        _Section(
+          title: strings.remindersSection,
+          children: [
+            SwitchListTile(
+              secondary: const Icon(Icons.notifications_active_outlined),
+              title: Text(strings.enableReminder),
+              subtitle: Text(strings.dailyReminder),
+              value: settings.reminderEnabled,
+              onChanged: (enabled) =>
+                  _setReminder(context, ref, settings, enabled),
+            ),
+            ListTile(
+              leading: const Icon(Icons.schedule_outlined),
+              title: Text(strings.reminderTime),
+              trailing: Text(
+                TimeOfDay(
+                  hour: settings.reminderHour,
+                  minute: settings.reminderMinute,
+                ).format(context),
+                style: theme.textTheme.titleSmall,
+              ),
+              onTap: () => _chooseReminderTime(context, ref, settings),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.event_repeat_outlined),
+              title: Text(strings.enablePaymentReminder),
+              value: settings.paymentReminderEnabled,
+              onChanged: (enabled) =>
+                  _setPaymentReminder(context, ref, settings, enabled),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              alignment: Alignment.topCenter,
+              child: settings.paymentReminderEnabled
+                  ? ListTile(
+                      leading: const Icon(Icons.today_outlined),
+                      title: Text(strings.paymentReminderDay),
+                      trailing: DropdownButton<int>(
+                        value: settings.paymentReminderDay,
+                        underline: const SizedBox.shrink(),
+                        borderRadius: BorderRadius.circular(16),
+                        items: [
+                          for (var day = 1; day <= 28; day++)
+                            DropdownMenuItem(
+                              value: day,
+                              child: Text(day.toString()),
+                            ),
+                        ],
+                        onChanged: (day) {
+                          if (day != null) {
+                            _setPaymentReminderDay(context, ref, settings, day);
+                          }
+                        },
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text(
+                strings.notificationPermission,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        _Section(
+          title: strings.dataSection,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.backup_outlined),
+              title: Text(strings.backup),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _backup(context, ref),
+            ),
+            ListTile(
+              leading: const Icon(Icons.restore_outlined),
+              title: Text(strings.restore),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _restore(context, ref),
+            ),
+          ],
+        ),
+        _Section(
+          title: strings.securitySection,
+          children: [
+            SwitchListTile(
+              secondary: const Icon(Icons.fingerprint_rounded),
+              title: Text(strings.enableAppLock),
+              subtitle: Text(strings.appLock),
+              value: settings.appLockEnabled,
+              onChanged: (enabled) => _setAppLock(context, ref, enabled),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
-        DropdownButtonFormField<ThemeMode>(
-          initialValue: settings.themeMode,
-          decoration: InputDecoration(labelText: strings.theme),
-          items: [
-            DropdownMenuItem(
-              value: ThemeMode.system,
-              child: Text(strings.systemTheme),
-            ),
-            DropdownMenuItem(
-              value: ThemeMode.light,
-              child: Text(strings.lightTheme),
-            ),
-            DropdownMenuItem(
-              value: ThemeMode.dark,
-              child: Text(strings.darkTheme),
-            ),
-          ],
-          onChanged: (value) {
-            if (value != null) {
-              _runSetting(context, () => controller.setTheme(value));
-            }
-          },
-        ),
-        const SizedBox(height: 12),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(strings.enableReminder),
-          subtitle: Text(strings.dailyReminder),
-          value: settings.reminderEnabled,
-          onChanged: (enabled) => _setReminder(context, ref, settings, enabled),
-        ),
         ListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(strings.reminderTime),
-          subtitle: Text(
-            TimeOfDay(
-              hour: settings.reminderHour,
-              minute: settings.reminderMinute,
-            ).format(context),
-          ),
-          trailing: const Icon(Icons.schedule_outlined),
-          onTap: () => _chooseReminderTime(context, ref, settings),
-        ),
-        Text(
-          strings.notificationPermission,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(strings.enablePaymentReminder),
-          value: settings.paymentReminderEnabled,
-          onChanged: (enabled) =>
-              _setPaymentReminder(context, ref, settings, enabled),
-        ),
-        if (settings.paymentReminderEnabled)
-          DropdownButtonFormField<int>(
-            initialValue: settings.paymentReminderDay,
-            decoration: InputDecoration(labelText: strings.paymentReminderDay),
-            items: [
-              for (var day = 1; day <= 28; day++)
-                DropdownMenuItem(value: day, child: Text(day.toString())),
-            ],
-            onChanged: (day) {
-              if (day != null) {
-                _setPaymentReminderDay(context, ref, settings, day);
-              }
-            },
-          ),
-        const Divider(height: 32),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.backup_outlined),
-          title: Text(strings.backup),
-          onTap: () => _backup(context, ref),
-        ),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.restore_outlined),
-          title: Text(strings.restore),
-          onTap: () => _restore(context, ref),
-        ),
-        const Divider(height: 32),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(strings.enableAppLock),
-          subtitle: Text(strings.appLock),
-          value: settings.appLockEnabled,
-          onChanged: (enabled) => _setAppLock(context, ref, enabled),
-        ),
-        const Divider(height: 32),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
           leading: const Icon(Icons.info_outline),
           title: Text(strings.about),
           subtitle: Text(strings.appDescription),
@@ -203,10 +264,8 @@ class _SettingsList extends ConsumerWidget {
           .restoreBackup();
       if (restored) {
         ref.invalidate(activeVendorsProvider);
-        ref.invalidate(paymentsProvider);
-        ref.invalidate(monthlyReportProvider);
-        ref.invalidate(entriesForMonthProvider);
-        ref.invalidate(entryForDateProvider);
+        ref.invalidate(archivedVendorsProvider);
+        ref.invalidate(vendorLedgerProvider);
         if (context.mounted) {
           _showMessage(context, strings.restoreSuccess);
         }
@@ -430,6 +489,82 @@ class _SettingsList extends ConsumerWidget {
     await _runSetting(
       context,
       () => ref.read(appSettingsProvider.notifier).setAppLock(enabled),
+    );
+  }
+}
+
+class _Section extends StatelessWidget {
+  const _Section({required this.title, required this.children});
+
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
+        child: Text(
+          title,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(children: children),
+        ),
+      ),
+    ],
+  );
+}
+
+class _LabeledControl extends StatelessWidget {
+  const _LabeledControl({
+    required this.icon,
+    required this.label,
+    required this.child,
+    this.hint,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? hint;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 22, color: theme.colorScheme.onSurfaceVariant),
+              const SizedBox(width: 16),
+              Expanded(child: Text(label, style: theme.textTheme.titleMedium)),
+            ],
+          ),
+          if (hint != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 38, top: 2),
+              child: Text(
+                hint!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
     );
   }
 }

@@ -17,6 +17,8 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
   static const _paymentReminderEnabledKey = 'paymentReminderEnabled';
   static const _paymentReminderDayKey = 'paymentReminderDay';
   static const _appLockKey = 'appLockEnabled';
+  static const _quantityStepKey = 'quantityStepMl';
+  static const quantitySteps = [100, 250, 500];
 
   @override
   Future<AppSettings> build() async {
@@ -31,6 +33,7 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
           preferences.getBool(_paymentReminderEnabledKey) ?? false,
       paymentReminderDay: preferences.getInt(_paymentReminderDayKey) ?? 5,
       appLockEnabled: preferences.getBool(_appLockKey) ?? false,
+      quantityStepMl: _validStep(preferences.getInt(_quantityStepKey)),
     );
   }
 
@@ -59,6 +62,13 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
   Future<void> setAppLock(bool enabled) =>
       _update((settings) => settings.copyWith(appLockEnabled: enabled));
 
+  Future<void> setQuantityStep(int stepMl) => _update(
+    (settings) => settings.copyWith(quantityStepMl: _validStep(stepMl)),
+  );
+
+  int _validStep(int? stepMl) =>
+      quantitySteps.contains(stepMl) ? stepMl! : 250;
+
   Future<void> _update(AppSettings Function(AppSettings) change) async {
     final previous = state.requireValue;
     final updated = change(previous);
@@ -77,6 +87,7 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
         ),
         preferences.setInt(_paymentReminderDayKey, updated.paymentReminderDay),
         preferences.setBool(_appLockKey, updated.appLockEnabled),
+        preferences.setInt(_quantityStepKey, updated.quantityStepMl),
       ]);
     } catch (error, stackTrace) {
       state = AsyncData(previous);

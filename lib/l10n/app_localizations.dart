@@ -1045,6 +1045,186 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your ledger is locked.'**
   String get appLocked;
+
+  /// No description provided for @totalDue.
+  ///
+  /// In en, this message translates to:
+  /// **'Total due'**
+  String get totalDue;
+
+  /// No description provided for @totalAdvance.
+  ///
+  /// In en, this message translates to:
+  /// **'Total advance'**
+  String get totalAdvance;
+
+  /// No description provided for @markAllDelivered.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark all delivered'**
+  String get markAllDelivered;
+
+  /// No description provided for @allDoneToday.
+  ///
+  /// In en, this message translates to:
+  /// **'All done for today'**
+  String get allDoneToday;
+
+  /// No description provided for @pendingToday.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} left to mark today'**
+  String pendingToday(int count);
+
+  /// No description provided for @editTodayEntry.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit today's entry'**
+  String get editTodayEntry;
+
+  /// No description provided for @date.
+  ///
+  /// In en, this message translates to:
+  /// **'Date'**
+  String get date;
+
+  /// No description provided for @status.
+  ///
+  /// In en, this message translates to:
+  /// **'Status'**
+  String get status;
+
+  /// No description provided for @printBill.
+  ///
+  /// In en, this message translates to:
+  /// **'Print or save PDF'**
+  String get printBill;
+
+  /// No description provided for @averagePerDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Average per day'**
+  String get averagePerDay;
+
+  /// No description provided for @archivedVendors.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed vendors'**
+  String get archivedVendors;
+
+  /// No description provided for @restoreVendor.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring back'**
+  String get restoreVendor;
+
+  /// No description provided for @vendorRestored.
+  ///
+  /// In en, this message translates to:
+  /// **'Vendor restored'**
+  String get vendorRestored;
+
+  /// No description provided for @deleteRateQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this rate? Entries already saved keep their rate.'**
+  String get deleteRateQuestion;
+
+  /// No description provided for @cannotDeleteOnlyRate.
+  ///
+  /// In en, this message translates to:
+  /// **'At least one rate is needed.'**
+  String get cannotDeleteOnlyRate;
+
+  /// No description provided for @rateDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Rate deleted'**
+  String get rateDeleted;
+
+  /// No description provided for @currentRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Current rate'**
+  String get currentRate;
+
+  /// No description provided for @generalSection.
+  ///
+  /// In en, this message translates to:
+  /// **'General'**
+  String get generalSection;
+
+  /// No description provided for @remindersSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Reminders'**
+  String get remindersSection;
+
+  /// No description provided for @dataSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup'**
+  String get dataSection;
+
+  /// No description provided for @securitySection.
+  ///
+  /// In en, this message translates to:
+  /// **'Security'**
+  String get securitySection;
+
+  /// No description provided for @quantityStep.
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity step'**
+  String get quantityStep;
+
+  /// No description provided for @quantityStepHint.
+  ///
+  /// In en, this message translates to:
+  /// **'How much + and − change the quantity'**
+  String get quantityStepHint;
+
+  /// No description provided for @notSet.
+  ///
+  /// In en, this message translates to:
+  /// **'Not set'**
+  String get notSet;
+
+  /// No description provided for @clear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get clear;
+
+  /// No description provided for @markRangeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill many days at once'**
+  String get markRangeTitle;
+
+  /// No description provided for @markRangeDelivered.
+  ///
+  /// In en, this message translates to:
+  /// **'Milk came on all unmarked days'**
+  String get markRangeDelivered;
+
+  /// No description provided for @markRangeSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'No milk on unmarked days (holiday)'**
+  String get markRangeSkipped;
+
+  /// No description provided for @bulkSkipQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark all unmarked days in the selected range as no delivery?'**
+  String get bulkSkipQuestion;
+
+  /// No description provided for @billGeneratedOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Generated on {date}'**
+  String billGeneratedOn(Object date);
 }
 
 class _AppLocalizationsDelegate

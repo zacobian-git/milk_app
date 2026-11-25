@@ -22,10 +22,12 @@ class MonthlyInsights extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.fromLTRB(4, 20, 4, 8),
         child: Text(
           strings.insights,
-          style: Theme.of(context).textTheme.titleLarge,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
       _InsightChart(
@@ -39,6 +41,7 @@ class MonthlyInsights extends StatelessWidget {
           decimalDigits: 0,
         ).format(value / 100),
       ),
+      const SizedBox(height: 12),
       _InsightChart(
         title: strings.monthlyLitres,
         insights: insights,
@@ -76,7 +79,7 @@ class _InsightChart extends StatelessWidget {
     final maximum = maximumValue == 0 ? 1.0 : maximumValue * 1.15;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 16, 8),
+        padding: const EdgeInsets.fromLTRB(12, 16, 16, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -96,7 +99,11 @@ class _InsightChart extends StatelessWidget {
                         barRods: [
                           BarChartRodData(
                             toY: valueFor(insights[index]).toDouble(),
-                            color: Theme.of(context).colorScheme.primary,
+                            color: index == insights.length - 1
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.primary.withValues(alpha: 0.45),
                             width: 18,
                             borderRadius: BorderRadius.circular(6),
                           ),

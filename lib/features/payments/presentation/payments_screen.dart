@@ -4,252 +4,387 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:milk_app/core/providers/ledger_providers.dart';
 import 'package:milk_app/core/utils/formatters.dart';
+import 'package:milk_app/core/widgets/common_widgets.dart';
 import 'package:milk_app/data/database/database_providers.dart';
 import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/domain/billing/billing_calculator.dart';
 import 'package:milk_app/domain/models/ledger_enums.dart';
+import 'package:milk_app/domain/utils/ledger_dates.dart';
 import 'package:milk_app/features/payments/data/payments_provider.dart';
 import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
-import 'package:intl/intl.dart';
 
-class PaymentsScreen extends ConsumerStatefulWidget {
+class PaymentsScreen extends ConsumerWidget {
   const PaymentsScreen({super.key});
 
   @override
-  ConsumerState<PaymentsScreen> createState() => _PaymentsScreenState();
-}
-
-class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
-  int? _vendorId;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final strings = AppLocalizations.of(context)!;
     final vendors = ref.watch(activeVendorsProvider);
+    final vendorList = vendors.value ?? const <Vendor>[];
+    final selectedVendor = vendorList.isEmpty
+        ? null
+        : resolveSelectedVendor(vendorList, ref.watch(selectedVendorIdProvider));
 
     return Scaffold(
       appBar: AppBar(title: Text(strings.tabPayments)),
       body: vendors.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => Center(
-          child: TextButton(
-            onPressed: () => ref.invalidate(activeVendorsProvider),
-            child: Text(strings.retry),
-          ),
-        ),
+        error: (error, stackTrace) =>
+            ErrorState(onRetry: () => ref.invalidate(activeVendorsProvider)),
         data: (items) {
-          if (items.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(strings.noVendors),
-                  FilledButton(
-                    onPressed: () => context.push('/vendors/new'),
-                    child: Text(strings.addVendor),
-                  ),
-                ],
-              ),
+          if (items.isEmpty || selectedVendor == null) {
+            return EmptyState(
+              icon: Icons.payments_rounded,
+              title: strings.noVendors,
+              message: strings.addFirstVendor,
+              actionLabel: strings.addVendor,
+              actionIcon: Icons.person_add_alt_1,
+              onAction: () => context.push('/vendors/new'),
             );
           }
-          final vendor = items.any((item) => item.id == _vendorId)
-              ? items.firstWhere((item) => item.id == _vendorId)
-              : items.first;
-          final month = DateTime.now();
-          final report = ref.watch(
-            monthlyReportProvider((
-              vendorId: vendor.id,
-              year: month.year,
-              month: month.month,
-            )),
-          );
+          final vendor = selectedVendor;
           final payments = ref.watch(paymentsProvider(vendor.id));
-
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: DropdownButtonFormField<int>(
-                  initialValue: vendor.id,
-                  decoration: InputDecoration(labelText: strings.selectVendor),
-                  items: [
-                    for (final item in items)
-                      DropdownMenuItem(value: item.id, child: Text(item.name)),
-                  ],
-                  onChanged: (value) => setState(() => _vendorId = value),
-                ),
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: VendorSelector(vendors: items, selected: vendor),
               ),
-              Expanded(
-                child: payments.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (error, stackTrace) => Center(
-                    child: TextButton(
-                      onPressed: () =>
-                          ref.invalidate(paymentsProvider(vendor.id)),
-                      child: Text(strings.retry),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                sliver: SliverToBoxAdapter(
+                  child: _BalanceHeader(
+                    vendor: vendor,
+                    onPayFull: (amount) => showPaymentEditor(
+                      context,
+                      ref,
+                      vendorId: vendor.id,
+                      initialAmountPaise: amount,
                     ),
                   ),
-                  data: (items) => items.isEmpty
-                      ? Center(child: Text(strings.noPayments))
-                      : _PaymentsList(
-                          payments: items,
-                          locale: strings.localeName,
-                          strings: strings,
-                          onEdit: (payment) => _editPayment(
-                            context,
-                            vendor.id,
-                            payment: payment,
+                ),
+              ),
+              ...payments.when(
+                loading: () => <Widget>[
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                ],
+                error: (error, stackTrace) => <Widget>[
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: ErrorState(
+                      onRetry: () =>
+                          ref.invalidate(vendorLedgerProvider(vendor.id)),
+                    ),
+                  ),
+                ],
+                data: (list) => list.isEmpty
+                    ? <Widget>[
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: EmptyState(
+                            icon: Icons.receipt_long_rounded,
+                            title: strings.noPayments,
                           ),
-                          onDelete: (payment) =>
-                              _deletePayment(context, payment),
                         ),
-                ),
+                      ]
+                    : _paymentSlivers(context, ref, list),
               ),
-              if (report.hasValue)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Card(
-                    child: ListTile(
-                      title: Text(
-                        report.value!.summary.closingBalancePaise < 0
-                            ? strings.advance
-                            : strings.balance,
-                      ),
-                      trailing: Text(
-                        formatMoney(
-                          report.value!.summary.closingBalancePaise.abs(),
-                          strings.localeName,
-                        ),
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                  ),
-                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 96)),
             ],
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          final vendors = ref.read(activeVendorsProvider).value ?? [];
-          if (vendors.isEmpty) {
-            return;
-          }
-          _editPayment(context, _vendorId ?? vendors.first.id);
-        },
-        icon: const Icon(Icons.add),
-        label: Text(strings.addPayment),
-      ),
+      floatingActionButton: selectedVendor == null
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () =>
+                  showPaymentEditor(context, ref, vendorId: selectedVendor.id),
+              icon: const Icon(Icons.add_rounded),
+              label: Text(strings.addPayment),
+            ),
     );
   }
 
-  Future<void> _editPayment(
+  List<Widget> _paymentSlivers(
     BuildContext context,
-    int vendorId, {
-    Payment? payment,
-  }) async {
-    final today = DateTime.now();
-    final report = await ref.read(
-      monthlyReportProvider((
-        vendorId: vendorId,
-        year: today.year,
-        month: today.month,
-      )).future,
-    );
-    if (!context.mounted) {
-      return;
-    }
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (context) => PaymentEditorSheet(
-        vendorId: vendorId,
-        existing: payment,
-        fullBalancePaise: report.summary.closingBalancePaise,
-      ),
-    );
-    if (saved == true) {
-      ref.invalidate(paymentsProvider(vendorId));
-      ref.invalidate(monthlyReportProvider);
-    }
-  }
-
-  Future<void> _deletePayment(BuildContext context, Payment payment) async {
+    WidgetRef ref,
+    List<Payment> payments,
+  ) {
     final strings = AppLocalizations.of(context)!;
-    final confirmed =
-        await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(strings.delete),
-            content: Text(strings.deletePaymentQuestion),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(strings.cancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(strings.delete),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!confirmed) {
-      return;
+    final locale = strings.localeName;
+    final groups = <DateTime, List<Payment>>{};
+    for (final payment in payments) {
+      groups.putIfAbsent(monthStart(payment.date), () => []).add(payment);
     }
-    try {
-      await ref.read(paymentRepositoryProvider).deletePayment(payment.id);
-      ref.invalidate(paymentsProvider(payment.vendorId));
-      ref.invalidate(monthlyReportProvider);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(strings.paymentDeleted),
-              action: SnackBarAction(
-                label: strings.undo,
-                onPressed: () => unawaited(_restorePayment(payment)),
+    return [
+      for (final group in groups.entries) ...[
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverToBoxAdapter(
+            child: SectionHeader(
+              DateFormat.yMMMM(locale).format(group.key),
+              trailing: Text(
+                formatMoney(
+                  group.value.fold<int>(0, (sum, p) => sum + p.amountPaise),
+                  locale,
+                ),
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-          );
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          sliver: SliverList.separated(
+            itemCount: group.value.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final payment = group.value[index];
+              return _PaymentTile(
+                key: ValueKey(payment.id),
+                payment: payment,
+                onTap: () => showPaymentEditor(
+                  context,
+                  ref,
+                  vendorId: payment.vendorId,
+                  payment: payment,
+                ),
+                onDelete: () => _deletePayment(context, ref, payment),
+              );
+            },
+          ),
+        ),
+      ],
+    ];
+  }
+
+  Future<void> _deletePayment(
+    BuildContext context,
+    WidgetRef ref,
+    Payment payment,
+  ) async {
+    final strings = AppLocalizations.of(context)!;
+    final repository = ref.read(paymentRepositoryProvider);
+    try {
+      await repository.deletePayment(payment.id);
+      HapticFeedback.mediumImpact();
+      if (context.mounted) {
+        showAppSnackBar(
+          context,
+          strings.paymentDeleted,
+          actionLabel: strings.undo,
+          onAction: () => unawaited(
+            repository
+                .restorePayment(payment)
+                .then<void>((_) {})
+                .catchError(
+                  (Object error, StackTrace stackTrace) =>
+                      reportUiError(error, stackTrace, 'restore payment'),
+                ),
+          ),
+        );
       }
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'delete payment',
-        ),
-      );
+      reportUiError(error, stackTrace, 'delete payment');
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
+        showAppSnackBar(context, strings.errorOccurred);
       }
     }
   }
+}
 
-  Future<void> _restorePayment(Payment payment) async {
-    try {
-      await ref.read(paymentRepositoryProvider).restorePayment(payment);
-      ref.invalidate(paymentsProvider(payment.vendorId));
-      ref.invalidate(monthlyReportProvider);
-    } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'restore payment',
+/// Opens the payment editor. The balance shown in quick actions is read from
+/// the already-cached ledger, so this opens instantly.
+Future<void> showPaymentEditor(
+  BuildContext context,
+  WidgetRef ref, {
+  required int vendorId,
+  Payment? payment,
+  int? initialAmountPaise,
+}) async {
+  final strings = AppLocalizations.of(context)!;
+  final balance = ref.read(vendorBalanceProvider(vendorId)).value ?? 0;
+  final saved = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (context) => PaymentEditorSheet(
+      vendorId: vendorId,
+      existing: payment,
+      fullBalancePaise: balance,
+      initialAmountPaise: initialAmountPaise,
+    ),
+  );
+  if (saved == true && context.mounted) {
+    showAppSnackBar(context, strings.paymentSaved);
+  }
+}
+
+class _BalanceHeader extends ConsumerWidget {
+  const _BalanceHeader({required this.vendor, required this.onPayFull});
+
+  final Vendor vendor;
+  final ValueChanged<int> onPayFull;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final locale = strings.localeName;
+    final balance = ref.watch(vendorBalanceProvider(vendor.id)).value;
+    final now = DateTime.now();
+    final report = ref
+        .watch(
+          monthlyReportProvider((
+            vendorId: vendor.id,
+            year: now.year,
+            month: now.month,
+          )),
+        )
+        .value;
+    final isDue = (balance ?? 0) > 0;
+    final accent = isDue ? colors.error : colors.primary;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (balance ?? 0) < 0 ? strings.advance : strings.balance,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      AnimatedSwitcher(
+                        duration: kShortAnimation,
+                        child: Text(
+                          balance == null
+                              ? '—'
+                              : formatMoney(balance.abs(), locale),
+                          key: ValueKey(balance),
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: accent,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (report != null)
+                  StatTile(
+                    label: strings.paymentsThisMonth,
+                    value: formatMoney(report.summary.paidPaise, locale),
+                  ),
+              ],
+            ),
+            if (isDue) ...[
+              const SizedBox(height: 14),
+              FilledButton.tonalIcon(
+                onPressed: () => onPayFull(balance!),
+                icon: const Icon(Icons.done_all_rounded),
+                label: Text(strings.payFullBalance),
+              ),
+            ],
+          ],
         ),
-      );
-    }
+      ),
+    );
+  }
+}
+
+class _PaymentTile extends StatelessWidget {
+  const _PaymentTile({
+    super.key,
+    required this.payment,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final Payment payment;
+  final VoidCallback onTap;
+  final Future<void> Function() onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final locale = strings.localeName;
+    final details = [
+      formatDate(payment.date, locale),
+      paymentModeLabel(strings, payment.mode),
+      if (payment.note?.isNotEmpty ?? false) payment.note!,
+    ].join(' · ');
+
+    return Dismissible(
+      key: ValueKey('payment-${payment.id}'),
+      direction: DismissDirection.endToStart,
+      // Delete first, then let the row animate away once the list updates.
+      confirmDismiss: (_) async {
+        await onDelete();
+        return true;
+      },
+      background: Container(
+        alignment: AlignmentDirectional.centerEnd,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        decoration: BoxDecoration(
+          color: colors.errorContainer,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Icon(Icons.delete_outline, color: colors.onErrorContainer),
+      ),
+      child: Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+          onTap: onTap,
+          leading: CircleAvatar(
+            backgroundColor: colors.secondaryContainer,
+            foregroundColor: colors.onSecondaryContainer,
+            child: Icon(paymentModeIcon(payment.mode), size: 20),
+          ),
+          title: Text(
+            formatMoney(payment.amountPaise, locale),
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(details, maxLines: 2, overflow: TextOverflow.ellipsis),
+          trailing: IconButton(
+            tooltip: strings.delete,
+            onPressed: () async {
+              final confirmed = await showConfirmDialog(
+                context,
+                title: strings.delete,
+                message: strings.deletePaymentQuestion,
+                confirmLabel: strings.delete,
+                destructive: true,
+              );
+              if (confirmed) {
+                await onDelete();
+              }
+            },
+            icon: const Icon(Icons.delete_outline),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -259,11 +394,13 @@ class PaymentEditorSheet extends ConsumerStatefulWidget {
     required this.vendorId,
     required this.fullBalancePaise,
     this.existing,
+    this.initialAmountPaise,
   });
 
   final int vendorId;
   final int fullBalancePaise;
   final Payment? existing;
+  final int? initialAmountPaise;
 
   @override
   ConsumerState<PaymentEditorSheet> createState() => _PaymentEditorSheetState();
@@ -272,14 +409,16 @@ class PaymentEditorSheet extends ConsumerStatefulWidget {
 class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _amountController = TextEditingController(
-    text: widget.existing == null
-        ? ''
-        : _amountInput(widget.existing!.amountPaise),
+    text: switch ((widget.existing, widget.initialAmountPaise)) {
+      (final Payment payment, _) => _amountInput(payment.amountPaise),
+      (null, final int amount) when amount > 0 => _amountInput(amount),
+      _ => '',
+    },
   );
   late final TextEditingController _noteController = TextEditingController(
     text: widget.existing?.note ?? '',
   );
-  late DateTime _date = widget.existing?.date ?? DateTime.now();
+  late DateTime _date = widget.existing?.date ?? dateOnly(DateTime.now());
   late PaymentMode _mode = widget.existing?.mode ?? PaymentMode.cash;
   bool _saving = false;
 
@@ -290,149 +429,173 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
     super.dispose();
   }
 
+  void _setAmount(int amountPaise) {
+    HapticFeedback.selectionClick();
+    final text = _amountInput(amountPaise);
+    _amountController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final locale = strings.localeName;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
-        16,
+        0,
         20,
         20 + MediaQuery.viewInsetsOf(context).bottom,
       ),
       child: Form(
         key: _formKey,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Text(
-              widget.existing == null ? strings.addPayment : strings.edit,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _amountController,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[\d.,₹]')),
-              ],
-              decoration: InputDecoration(
-                labelText: '${strings.paymentAmount} (₹)',
-              ),
-              validator: (value) =>
-                  parseRupeesToPaise(value ?? '') == null ||
-                      parseRupeesToPaise(value ?? '') == 0
-                  ? strings.invalidAmount
-                  : null,
-            ),
-            if (widget.existing == null) ...[
-              const SizedBox(height: 8),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Text(
-                strings.advancePaymentHint,
-                style: Theme.of(context).textTheme.bodySmall,
+                widget.existing == null ? strings.addPayment : strings.edit,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _amountController,
+                autofocus: widget.existing == null &&
+                    widget.initialAmountPaise == null,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[\d.,₹]')),
+                ],
+                decoration: InputDecoration(
+                  labelText: strings.paymentAmount,
+                  prefixText: '₹ ',
+                ),
+                validator: (value) {
+                  final amount = parseRupeesToPaise(value ?? '');
+                  return amount == null || amount == 0
+                      ? strings.invalidAmount
+                      : null;
+                },
+              ),
+              if (widget.existing == null) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (widget.fullBalancePaise > 0)
+                      ActionChip(
+                        avatar: const Icon(Icons.done_all_rounded, size: 18),
+                        label: Text(
+                          '${strings.payFullBalance} · '
+                          '${formatMoney(widget.fullBalancePaise, locale)}',
+                        ),
+                        onPressed: () => _setAmount(widget.fullBalancePaise),
+                      ),
+                    for (final amount in [50000, 100000, 200000])
+                      ActionChip(
+                        label: Text(formatMoney(amount, locale)),
+                        onPressed: () => _setAmount(amount),
+                      ),
+                    for (final amount in [50000, 100000])
+                      ActionChip(
+                        label: Text(
+                          strings.addAdvanceAmount(formatMoney(amount, locale)),
+                        ),
+                        onPressed: () => _setAmount(
+                          paymentAmountForAdditionalAdvancePaise(
+                            balancePaise: widget.fullBalancePaise,
+                            additionalAdvancePaise: amount,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  strings.advancePaymentHint,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Text(strings.paymentMode, style: theme.textTheme.labelLarge),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  if (widget.fullBalancePaise > 0)
-                    ActionChip(
-                      label: Text(strings.payFullBalance),
-                      onPressed: () => _amountController.text = _amountInput(
-                        widget.fullBalancePaise,
-                      ),
-                    ),
-                  for (final amount in [50000, 100000, 200000])
-                    ActionChip(
-                      label: Text(formatMoney(amount, strings.localeName)),
-                      onPressed: () =>
-                          _amountController.text = _amountInput(amount),
-                    ),
-                  for (final amount in [50000, 100000])
-                    ActionChip(
-                      label: Text(
-                        strings.addAdvanceAmount(
-                          formatMoney(amount, strings.localeName),
-                        ),
-                      ),
-                      onPressed: () {
-                        final paymentAmount =
-                            paymentAmountForAdditionalAdvancePaise(
-                              balancePaise: widget.fullBalancePaise,
-                              additionalAdvancePaise: amount,
-                            );
-                        _amountController.text = _amountInput(paymentAmount);
+                  for (final mode in PaymentMode.values)
+                    ChoiceChip(
+                      avatar: Icon(paymentModeIcon(mode), size: 18),
+                      label: Text(paymentModeLabel(strings, mode)),
+                      selected: _mode == mode,
+                      showCheckmark: false,
+                      onSelected: (_) {
+                        HapticFeedback.selectionClick();
+                        setState(() => _mode = mode);
                       },
                     ),
                 ],
               ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                leading: const Icon(Icons.event_rounded),
+                title: Text(strings.paymentDate),
+                subtitle: Text(formatDate(_date, locale)),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _pickDate,
+              ),
+              const SizedBox(height: 4),
+              TextFormField(
+                controller: _noteController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  labelText: strings.paymentNote,
+                  prefixIcon: const Icon(Icons.sticky_note_2_outlined),
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: Text(strings.save),
+              ),
             ],
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.paymentDate),
-              subtitle: Text(formatDate(_date, strings.localeName)),
-              trailing: const Icon(Icons.calendar_today_outlined),
-              onTap: _pickDate,
-            ),
-            DropdownButtonFormField<PaymentMode>(
-              initialValue: _mode,
-              decoration: InputDecoration(labelText: strings.paymentMode),
-              items: [
-                DropdownMenuItem(
-                  value: PaymentMode.cash,
-                  child: Text(strings.cash),
-                ),
-                DropdownMenuItem(
-                  value: PaymentMode.upi,
-                  child: Text(strings.upi),
-                ),
-                DropdownMenuItem(
-                  value: PaymentMode.bank,
-                  child: Text(strings.bank),
-                ),
-                DropdownMenuItem(
-                  value: PaymentMode.other,
-                  child: Text(strings.otherPayment),
-                ),
-              ],
-              onChanged: (mode) {
-                if (mode != null) {
-                  setState(() => _mode = mode);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _noteController,
-              decoration: InputDecoration(labelText: strings.paymentNote),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const CircularProgressIndicator()
-                  : Text(strings.save),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _pickDate() async {
+    final today = dateOnly(DateTime.now());
     final selected = await showDatePicker(
       context: context,
-      initialDate: _date,
+      initialDate: _date.isAfter(today) ? today : _date,
       firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      lastDate: today,
     );
     if (selected != null) {
-      setState(() => _date = selected);
+      setState(() => _date = dateOnly(selected));
     }
   }
 
@@ -448,7 +611,8 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
     setState(() => _saving = true);
     try {
       final repository = ref.read(paymentRepositoryProvider);
-      if (widget.existing == null) {
+      final existing = widget.existing;
+      if (existing == null) {
         await repository.addPayment(
           vendorId: widget.vendorId,
           date: _date,
@@ -458,28 +622,22 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
         );
       } else {
         await repository.updatePayment(
-          widget.existing!.copyWith(
-            date: _date,
+          existing.copyWith(
+            date: dateOnly(_date),
             amountPaise: amount,
             mode: _mode,
             note: Value(_optionalNote),
           ),
         );
       }
+      HapticFeedback.lightImpact();
       if (mounted) {
         Navigator.pop(context, true);
       }
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'save payment',
-        ),
-      );
+      reportUiError(error, stackTrace, 'save payment');
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
+        showAppSnackBar(context, strings.errorOccurred);
       }
     } finally {
       if (mounted) {
@@ -491,72 +649,11 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
   String? get _optionalNote =>
       _noteController.text.trim().isEmpty ? null : _noteController.text.trim();
 
-  String _amountInput(int amountPaise) =>
-      '${amountPaise ~/ 100}.${(amountPaise % 100).toString().padLeft(2, '0')}';
-}
-
-class _PaymentsList extends StatelessWidget {
-  const _PaymentsList({
-    required this.payments,
-    required this.locale,
-    required this.strings,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final List<Payment> payments;
-  final String locale;
-  final AppLocalizations strings;
-  final ValueChanged<Payment> onEdit;
-  final ValueChanged<Payment> onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final grouped = <(int, int), List<Payment>>{};
-    for (final payment in payments.reversed) {
-      grouped
-          .putIfAbsent((payment.date.year, payment.date.month), () => [])
-          .add(payment);
-    }
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      children: [
-        for (final group in grouped.entries) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
-            child: Text(
-              DateFormat.yMMMM(locale)
-                  .format(DateTime(group.key.$1, group.key.$2)),
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-          ),
-          for (final payment in group.value)
-            Card(
-              child: ListTile(
-                title: Text(
-                  formatMoney(payment.amountPaise, locale),
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text(
-                  '${formatDate(payment.date, locale)} · ${_modeLabel(payment.mode)}',
-                ),
-                onTap: () => onEdit(payment),
-                trailing: IconButton(
-                  tooltip: strings.delete,
-                  onPressed: () => onDelete(payment),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-              ),
-            ),
-        ],
-      ],
-    );
+  static String _amountInput(int amountPaise) {
+    final rupees = amountPaise ~/ 100;
+    final paise = amountPaise % 100;
+    return paise == 0
+        ? '$rupees'
+        : '$rupees.${paise.toString().padLeft(2, '0')}';
   }
-
-  String _modeLabel(PaymentMode mode) => switch (mode) {
-    PaymentMode.cash => strings.cash,
-    PaymentMode.upi => strings.upi,
-    PaymentMode.bank => strings.bank,
-    PaymentMode.other => strings.otherPayment,
-  };
 }

@@ -10,6 +10,7 @@ class AppSettings {
     this.paymentReminderEnabled = false,
     this.paymentReminderDay = 5,
     this.appLockEnabled = false,
+    this.quantityStepMl = 250,
   });
 
   final String languageCode;
@@ -21,6 +22,9 @@ class AppSettings {
   final int paymentReminderDay;
   final bool appLockEnabled;
 
+  /// How much the + and − buttons change a quantity, in millilitres.
+  final int quantityStepMl;
+
   AppSettings copyWith({
     String? languageCode,
     ThemeMode? themeMode,
@@ -30,6 +34,7 @@ class AppSettings {
     bool? paymentReminderEnabled,
     int? paymentReminderDay,
     bool? appLockEnabled,
+    int? quantityStepMl,
   }) => AppSettings(
     languageCode: languageCode ?? this.languageCode,
     themeMode: themeMode ?? this.themeMode,
@@ -40,5 +45,6 @@ class AppSettings {
         paymentReminderEnabled ?? this.paymentReminderEnabled,
     paymentReminderDay: paymentReminderDay ?? this.paymentReminderDay,
     appLockEnabled: appLockEnabled ?? this.appLockEnabled,
+    quantityStepMl: quantityStepMl ?? this.quantityStepMl,
   );
 }

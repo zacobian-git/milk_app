@@ -81,6 +81,19 @@ class VendorRepository {
 
   Future<void> archiveVendor(int id) => _dao.archiveVendor(id);
 
+  Stream<List<Vendor>> watchArchivedVendors() => _dao.watchArchivedVendors();
+
+  Future<void> restoreVendor(int id) => _dao.restoreVendor(id);
+
+  Stream<VendorLedgerSnapshot?> watchVendorLedger(int vendorId) =>
+      _dao.watchVendorLedger(vendorId);
+
+  /// Returns `false` when the rate is the vendor's only rate.
+  Future<bool> deleteRate({
+    required int vendorId,
+    required DateTime effectiveFrom,
+  }) => _dao.deleteRate(vendorId, dateOnly(effectiveFrom));
+
   Future<List<MilkRate>> getRateHistory(int vendorId) async {
     final history = await _dao.getRateHistory(vendorId);
     return history

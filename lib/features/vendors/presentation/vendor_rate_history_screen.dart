@@ -2,10 +2,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:milk_app/core/utils/formatters.dart';
+import 'package:milk_app/core/widgets/common_widgets.dart';
 import 'package:milk_app/data/database/database_providers.dart';
-import 'package:milk_app/data/database/milk_database.dart';
-import 'package:milk_app/data/repositories/vendor_repository.dart';
 import 'package:milk_app/domain/models/billing_models.dart';
+import 'package:milk_app/domain/utils/ledger_dates.dart';
+import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
 
 class VendorRateHistoryScreen extends ConsumerWidget {
@@ -16,43 +17,54 @@ class VendorRateHistoryScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = AppLocalizations.of(context)!;
-    final repository = ref.watch(vendorRepositoryProvider);
+    final ledger = ref.watch(vendorLedgerProvider(vendorId));
 
     return Scaffold(
-      appBar: AppBar(title: Text(strings.rateHistory)),
-      body: FutureBuilder<(Vendor?, List<MilkRate>)>(
-        future: _load(repository),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text(strings.errorOccurred));
-          }
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final vendor = snapshot.data!.$1;
-          final rates = snapshot.data!.$2;
-          if (vendor == null) {
-            return Center(child: Text(strings.errorOccurred));
-          }
+      appBar: AppBar(
+        title: Text(ledger.value?.vendor.name ?? strings.rateHistory),
+      ),
+      body: ledger.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stackTrace) => ErrorState(
+          onRetry: () => ref.invalidate(vendorLedgerProvider(vendorId)),
+        ),
+        data: (data) {
+          final rates = milkRatesOf(data).reversed.toList(growable: false);
           if (rates.isEmpty) {
-            return Center(child: Text(strings.noRateHistory));
+            return EmptyState(
+              icon: Icons.price_change_outlined,
+              title: strings.noRateHistory,
+            );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: rates.length,
-            separatorBuilder: (context, index) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final rate = rates[index];
-              return ListTile(
-                title: Text(
-                  formatMoney(rate.ratePerLitrePaise, strings.localeName),
+          final today = dateOnly(DateTime.now());
+          // Newest first; the first rate that has started is the current one.
+          final currentIndex = rates.indexWhere(
+            (rate) => !dateOnly(rate.effectiveFrom).isAfter(today),
+          );
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+            children: [
+              SectionHeader(strings.rateHistory),
+              Card(
+                child: Column(
+                  children: [
+                    for (var index = 0; index < rates.length; index++) ...[
+                      if (index > 0) const Divider(height: 1, indent: 72),
+                      _RateTile(
+                        rate: rates[index],
+                        isCurrent: index == currentIndex,
+                        isFuture: dateOnly(
+                          rates[index].effectiveFrom,
+                        ).isAfter(today),
+                        onDelete: rates.length > 1
+                            ? () => _deleteRate(context, ref, rates[index])
+                            : null,
+                      ),
+                    ],
+                  ],
                 ),
-                subtitle: Text(
-                  formatDate(rate.effectiveFrom, strings.localeName),
-                ),
-                trailing: index == rates.length - 1 ? Text(vendor.name) : null,
-              );
-            },
+              ),
+            ],
           );
         },
       ),
@@ -64,13 +76,8 @@ class VendorRateHistoryScreen extends ConsumerWidget {
     );
   }
 
-  Future<(Vendor?, List<MilkRate>)> _load(VendorRepository repository) async =>
-      (
-        await repository.getVendor(vendorId),
-        await repository.getRateHistory(vendorId),
-      );
-
   Future<void> _addRate(BuildContext context, WidgetRef ref) async {
+    final strings = AppLocalizations.of(context)!;
     final value = await showDialog<({int rate, DateTime date})>(
       context: context,
       builder: (context) => const _RateDialog(),
@@ -86,21 +93,107 @@ class VendorRateHistoryScreen extends ConsumerWidget {
             ratePerLitrePaise: value.rate,
             effectiveFrom: value.date,
           );
+      HapticFeedback.lightImpact();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.rateSaved)),
+        showAppSnackBar(context, strings.rateSaved);
+      }
+    } catch (error, stackTrace) {
+      reportUiError(error, stackTrace, 'change rate');
+      if (context.mounted) {
+        showAppSnackBar(context, strings.errorOccurred);
+      }
+    }
+  }
+
+  Future<void> _deleteRate(
+    BuildContext context,
+    WidgetRef ref,
+    MilkRate rate,
+  ) async {
+    final strings = AppLocalizations.of(context)!;
+    final confirmed = await showConfirmDialog(
+      context,
+      message: strings.deleteRateQuestion,
+      confirmLabel: strings.delete,
+      destructive: true,
+    );
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    try {
+      final deleted = await ref
+          .read(vendorRepositoryProvider)
+          .deleteRate(vendorId: vendorId, effectiveFrom: rate.effectiveFrom);
+      if (context.mounted) {
+        showAppSnackBar(
+          context,
+          deleted ? strings.rateDeleted : strings.cannotDeleteOnlyRate,
         );
       }
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(exception: error, stack: stackTrace),
-      );
+      reportUiError(error, stackTrace, 'delete rate');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.errorOccurred)),
-        );
+        showAppSnackBar(context, strings.errorOccurred);
       }
     }
+  }
+}
+
+class _RateTile extends StatelessWidget {
+  const _RateTile({
+    required this.rate,
+    required this.isCurrent,
+    required this.isFuture,
+    required this.onDelete,
+  });
+
+  final MilkRate rate;
+  final bool isCurrent;
+  final bool isFuture;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final colors = Theme.of(context).colorScheme;
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+      leading: CircleAvatar(
+        backgroundColor: isCurrent
+            ? colors.primaryContainer
+            : colors.surfaceContainerHighest,
+        foregroundColor: isCurrent
+            ? colors.onPrimaryContainer
+            : colors.onSurfaceVariant,
+        child: Icon(
+          isFuture ? Icons.upcoming_outlined : Icons.currency_rupee_rounded,
+        ),
+      ),
+      title: Row(
+        children: [
+          Text(
+            '${formatMoney(rate.ratePerLitrePaise, strings.localeName)}'
+            ' / ${strings.litreUnit}',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          if (isCurrent) ...[
+            const SizedBox(width: 8),
+            StatusPill(label: strings.currentRate, color: colors.primary),
+          ],
+        ],
+      ),
+      subtitle: Text(
+        '${strings.effectiveFrom}: '
+        '${formatDate(rate.effectiveFrom, strings.localeName)}',
+      ),
+      trailing: onDelete == null
+          ? null
+          : IconButton(
+              tooltip: strings.delete,
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline),
+            ),
+    );
   }
 }
 
@@ -113,12 +206,22 @@ class _RateDialog extends StatefulWidget {
 
 class _RateDialogState extends State<_RateDialog> {
   final _controller = TextEditingController();
-  DateTime _effectiveDate = DateTime.now();
+  DateTime _effectiveDate = dateOnly(DateTime.now());
+  String? _error;
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _submit() {
+    final rate = parseRupeesToPaise(_controller.text);
+    if (rate == null || rate <= 0) {
+      setState(() => _error = AppLocalizations.of(context)!.invalidAmount);
+      return;
+    }
+    Navigator.pop(context, (rate: rate, date: _effectiveDate));
   }
 
   @override
@@ -128,6 +231,7 @@ class _RateDialogState extends State<_RateDialog> {
       title: Text(strings.changeRate),
       content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextField(
             controller: _controller,
@@ -137,8 +241,11 @@ class _RateDialogState extends State<_RateDialog> {
               FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
             ],
             decoration: InputDecoration(
-              labelText: '${strings.ratePerLitre} (₹)',
+              labelText: strings.ratePerLitre,
+              prefixText: '₹ ',
+              errorText: _error,
             ),
+            onSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -150,12 +257,13 @@ class _RateDialogState extends State<_RateDialog> {
                 lastDate: DateTime(2100),
               );
               if (date != null) {
-                setState(() => _effectiveDate = date);
+                setState(() => _effectiveDate = dateOnly(date));
               }
             },
-            icon: const Icon(Icons.calendar_today_outlined),
+            icon: const Icon(Icons.event_rounded),
             label: Text(
-              '${strings.effectiveFrom}: ${formatDate(_effectiveDate, strings.localeName)}',
+              '${strings.effectiveFrom}: '
+              '${formatDate(_effectiveDate, strings.localeName)}',
             ),
           ),
         ],
@@ -166,13 +274,8 @@ class _RateDialogState extends State<_RateDialog> {
           child: Text(strings.cancel),
         ),
         FilledButton(
-          onPressed: () {
-            final rate = parseRupeesToPaise(_controller.text);
-            if (rate == null) {
-              return;
-            }
-            Navigator.pop(context, (rate: rate, date: _effectiveDate));
-          },
+          style: FilledButton.styleFrom(minimumSize: const Size(48, 44)),
+          onPressed: _submit,
           child: Text(strings.save),
         ),
       ],

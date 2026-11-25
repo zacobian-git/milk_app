@@ -4,9 +4,89 @@ import 'package:milk_app/data/database/tables.dart';
 
 part 'ledger_dao.g.dart';
 
+/// Everything needed to compute balances and reports for one vendor.
+class VendorLedgerSnapshot {
+  const VendorLedgerSnapshot({
+    required this.vendor,
+    required this.rates,
+    required this.entries,
+    required this.payments,
+  });
+
+  final Vendor vendor;
+
+  /// Sorted by effective date, oldest first.
+  final List<RateHistory> rates;
+
+  /// Sorted by date, oldest first.
+  final List<DailyEntry> entries;
+
+  /// Sorted by date, oldest first.
+  final List<Payment> payments;
+}
+
 @DriftAccessor(tables: [Vendors, RateHistories, DailyEntries, Payments])
 class LedgerDao extends DatabaseAccessor<MilkDatabase> with _$LedgerDaoMixin {
   LedgerDao(super.attachedDatabase);
+
+  /// Emits a fresh snapshot of a vendor's ledger now and after every write to
+  /// any ledger table, so every screen stays in sync without manual refreshes.
+  /// Emits `null` when the vendor does not exist.
+  Stream<VendorLedgerSnapshot?> watchVendorLedger(int vendorId) =>
+      // A trivial query that drift re-runs whenever one of these tables
+      // changes; each run triggers one fresh snapshot load.
+      customSelect(
+        'SELECT 1',
+        readsFrom: {vendors, rateHistories, dailyEntries, payments},
+      ).watch().asyncMap((_) => _loadVendorLedger(vendorId));
+
+  Future<VendorLedgerSnapshot?> _loadVendorLedger(int vendorId) async {
+    final vendor = await getVendor(vendorId);
+    if (vendor == null) {
+      return null;
+    }
+    final (rates, entries, payments) = await (
+      getRateHistory(vendorId),
+      getAllEntries(vendorId),
+      getAllPayments(vendorId),
+    ).wait;
+    return VendorLedgerSnapshot(
+      vendor: vendor,
+      rates: rates,
+      entries: entries,
+      payments: payments,
+    );
+  }
+
+  Stream<List<Vendor>> watchArchivedVendors() =>
+      (select(vendors)
+            ..where((vendor) => vendor.isActive.equals(false))
+            ..orderBy([(vendor) => OrderingTerm.asc(vendor.name)]))
+          .watch();
+
+  Future<void> restoreVendor(int id) async {
+    await (update(vendors)..where((vendor) => vendor.id.equals(id))).write(
+      const VendorsCompanion(isActive: Value(true)),
+    );
+  }
+
+  /// Deletes one rate. Refuses to delete the last remaining rate because
+  /// every entry needs a rate to be priced.
+  Future<bool> deleteRate(int vendorId, DateTime effectiveFrom) =>
+      transaction(() async {
+        final rates = await getRateHistory(vendorId);
+        if (rates.length <= 1) {
+          return false;
+        }
+        final removed =
+            await (delete(rateHistories)..where(
+                  (rate) =>
+                      rate.vendorId.equals(vendorId) &
+                      rate.effectiveFrom.equals(effectiveFrom),
+                ))
+                .go();
+        return removed > 0;
+      });
 
   Future<List<Vendor>> getActiveVendors() =>
       (select(vendors)

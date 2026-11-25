@@ -1,8 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:milk_app/data/daos/ledger_dao.dart';
 import 'package:milk_app/data/database/database_providers.dart';
 import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/domain/billing/billing_calculator.dart';
 import 'package:milk_app/domain/models/billing_models.dart';
+import 'package:milk_app/domain/models/ledger_enums.dart';
+import 'package:milk_app/domain/utils/ledger_dates.dart';
 
 typedef MonthSelection = ({int vendorId, int year, int month});
 typedef EntryDateSelection = ({int vendorId, DateTime date});
@@ -28,6 +31,7 @@ class MonthlyReportData {
     required this.entries,
     required this.payments,
     required this.insights,
+    this.currentRatePaise,
   });
 
   final Vendor vendor;
@@ -37,113 +41,200 @@ class MonthlyReportData {
   final List<DailyEntry> entries;
   final List<Payment> payments;
   final List<MonthlyInsight> insights;
+
+  /// The rate in effect today, or `null` when no rate has started yet.
+  final int? currentRatePaise;
+
+  /// Average quantity per delivered day, in millilitres.
+  int get averageDailyMl => summary.deliveredDays == 0
+      ? 0
+      : (summary.totalQuantityMl / summary.deliveredDays).round();
 }
 
-final vendorRateHistoryProvider = FutureProvider.family<List<MilkRate>, int>(
-  (ref, vendorId) =>
-      ref.watch(vendorRepositoryProvider).getRateHistory(vendorId),
-);
+/// Builds a report for one month from an in-memory ledger snapshot.
+/// Pure and synchronous, so it is cheap to recompute on every change.
+MonthlyReportData buildMonthlyReport(
+  VendorLedgerSnapshot ledger, {
+  required int year,
+  required int month,
+  int insightMonths = 6,
+}) {
+  final billingEntries = [
+    for (final entry in ledger.entries)
+      BillingEntry(
+        date: entry.date,
+        quantityMl: entry.quantityMl,
+        rateUsedPaise: entry.rateUsedPaise,
+        status: entry.status,
+      ),
+  ];
+  final paymentRecords = [
+    for (final payment in ledger.payments)
+      PaymentRecord(date: payment.date, amountPaise: payment.amountPaise),
+  ];
+  final summary = calculateMonthlySummary(
+    openingBalancePaise: ledger.vendor.openingBalancePaise,
+    entries: billingEntries,
+    payments: paymentRecords,
+    year: year,
+    month: month,
+  );
+
+  // Insights cover the months ending at the selected month, in one pass.
+  final firstInsightMonth = DateTime(year, month - (insightMonths - 1));
+  final quantities = List<int>.filled(insightMonths, 0);
+  final amounts = List<int>.filled(insightMonths, 0);
+  for (final entry in billingEntries) {
+    if (entry.status == DailyEntryStatus.skipped) {
+      continue;
+    }
+    final index =
+        (entry.date.year - firstInsightMonth.year) * 12 +
+        entry.date.month -
+        firstInsightMonth.month;
+    if (index < 0 || index >= insightMonths) {
+      continue;
+    }
+    quantities[index] += entry.quantityMl;
+    amounts[index] += amountForEntry(entry);
+  }
+
+  final start = DateTime(year, month);
+  final end = DateTime(year, month + 1);
+  bool inMonth(DateTime date) => !date.isBefore(start) && date.isBefore(end);
+
+  return MonthlyReportData(
+    vendor: ledger.vendor,
+    summary: summary,
+    year: year,
+    month: month,
+    entries: [
+      for (final entry in ledger.entries)
+        if (inMonth(entry.date)) entry,
+    ],
+    payments: [
+      for (final payment in ledger.payments)
+        if (inMonth(payment.date)) payment,
+    ],
+    insights: [
+      for (var index = 0; index < insightMonths; index++)
+        MonthlyInsight(
+          month: DateTime(
+            firstInsightMonth.year,
+            firstInsightMonth.month + index,
+          ),
+          quantityMl: quantities[index],
+          amountPaise: amounts[index],
+        ),
+    ],
+    currentRatePaise: rateForDate(milkRatesOf(ledger), DateTime.now()),
+  );
+}
+
+List<MilkRate> milkRatesOf(VendorLedgerSnapshot ledger) => [
+  for (final rate in ledger.rates)
+    MilkRate(
+      effectiveFrom: rate.effectiveFrom,
+      ratePerLitrePaise: rate.ratePerLitrePaise,
+    ),
+];
+
+/// The single source of truth for a vendor's data. It re-emits after every
+/// database write, so derived providers below never need manual invalidation.
+final vendorLedgerProvider = StreamProvider.family<VendorLedgerSnapshot, int>((
+  ref,
+  vendorId,
+) {
+  return ref
+      .watch(vendorRepositoryProvider)
+      .watchVendorLedger(vendorId)
+      .map((ledger) {
+        if (ledger == null) {
+          throw StateError('The selected vendor no longer exists.');
+        }
+        return ledger;
+      });
+});
 
 final monthlyReportProvider =
-    FutureProvider.family<MonthlyReportData, MonthSelection>((
-      ref,
-      selection,
-    ) async {
-      final vendors = ref.watch(vendorRepositoryProvider);
-      final entriesRepo = ref.watch(dailyEntryRepositoryProvider);
-      final paymentsRepo = ref.watch(paymentRepositoryProvider);
-      final vendor = await vendors.getVendor(selection.vendorId);
-      if (vendor == null) {
-        throw StateError('The selected vendor no longer exists.');
-      }
+    Provider.family<AsyncValue<MonthlyReportData>, MonthSelection>(
+      (ref, selection) => ref
+          .watch(vendorLedgerProvider(selection.vendorId))
+          .whenData(
+            (ledger) => buildMonthlyReport(
+              ledger,
+              year: selection.year,
+              month: selection.month,
+            ),
+          ),
+    );
 
-      final allEntries = await entriesRepo.getAllEntries(selection.vendorId);
-      final allPayments = await paymentsRepo.getAllPayments(selection.vendorId);
-      final summary = calculateMonthlySummary(
-        openingBalancePaise: vendor.openingBalancePaise,
-        entries: allEntries.map(
-          (entry) => BillingEntry(
-            date: entry.date,
-            quantityMl: entry.quantityMl,
-            rateUsedPaise: entry.rateUsedPaise,
-            status: entry.status,
-          ),
+/// Running balance as of today (positive = due, negative = advance).
+final vendorBalanceProvider = Provider.family<AsyncValue<int>, int>(
+  (ref, vendorId) => ref
+      .watch(vendorLedgerProvider(vendorId))
+      .whenData(
+        (ledger) => calculateAccountBalance(
+          openingBalancePaise: ledger.vendor.openingBalancePaise,
+          entries: [
+            for (final entry in ledger.entries)
+              BillingEntry(
+                date: entry.date,
+                quantityMl: entry.quantityMl,
+                rateUsedPaise: entry.rateUsedPaise,
+                status: entry.status,
+              ),
+          ],
+          payments: [
+            for (final payment in ledger.payments)
+              PaymentRecord(
+                date: payment.date,
+                amountPaise: payment.amountPaise,
+              ),
+          ],
         ),
-        payments: allPayments.map(
-          (payment) => PaymentRecord(
-            date: payment.date,
-            amountPaise: payment.amountPaise,
-          ),
-        ),
-        year: selection.year,
-        month: selection.month,
-      );
-      final now = DateTime.now();
-      final insights = <MonthlyInsight>[];
-      for (var monthOffset = 5; monthOffset >= 0; monthOffset--) {
-        final insightMonth = DateTime(now.year, now.month - monthOffset);
-        final insightSummary = calculateMonthlySummary(
-          openingBalancePaise: vendor.openingBalancePaise,
-          entries: allEntries.map(
-            (entry) => BillingEntry(
-              date: entry.date,
-              quantityMl: entry.quantityMl,
-              rateUsedPaise: entry.rateUsedPaise,
-              status: entry.status,
-            ),
-          ),
-          payments: allPayments.map(
-            (payment) => PaymentRecord(
-              date: payment.date,
-              amountPaise: payment.amountPaise,
-            ),
-          ),
-          year: insightMonth.year,
-          month: insightMonth.month,
-        );
-        insights.add(
-          MonthlyInsight(
-            month: insightMonth,
-            quantityMl: insightSummary.totalQuantityMl,
-            amountPaise: insightSummary.totalAmountPaise,
-          ),
-        );
-      }
-      final start = DateTime(selection.year, selection.month);
-      final end = DateTime(selection.year, selection.month + 1);
-      return MonthlyReportData(
-        vendor: vendor,
-        summary: summary,
-        year: selection.year,
-        month: selection.month,
-        entries: allEntries
-            .where(
-              (entry) =>
-                  !entry.date.isBefore(start) && entry.date.isBefore(end),
-            )
-            .toList(growable: false),
-        payments: allPayments
-            .where(
-              (payment) =>
-                  !payment.date.isBefore(start) && payment.date.isBefore(end),
-            )
-            .toList(growable: false),
-        insights: insights,
-      );
-    });
+      ),
+);
+
+final vendorRateHistoryProvider = Provider.family<AsyncValue<List<MilkRate>>, int>(
+  (ref, vendorId) =>
+      ref.watch(vendorLedgerProvider(vendorId)).whenData(milkRatesOf),
+);
 
 final entriesForMonthProvider =
-    FutureProvider.family<List<DailyEntry>, MonthSelection>((ref, selection) {
+    Provider.family<AsyncValue<List<DailyEntry>>, MonthSelection>((
+      ref,
+      selection,
+    ) {
       final start = DateTime(selection.year, selection.month);
-      final end = DateTime(selection.year, selection.month + 1, 0);
+      final end = DateTime(selection.year, selection.month + 1);
       return ref
-          .watch(dailyEntryRepositoryProvider)
-          .getEntriesForRange(selection.vendorId, start, end);
+          .watch(vendorLedgerProvider(selection.vendorId))
+          .whenData(
+            (ledger) => [
+              for (final entry in ledger.entries)
+                if (!entry.date.isBefore(start) && entry.date.isBefore(end))
+                  entry,
+            ],
+          );
     });
 
 final entryForDateProvider =
-    FutureProvider.family<DailyEntry?, EntryDateSelection>(
-      (ref, selection) => ref
-          .watch(dailyEntryRepositoryProvider)
-          .getEntryForDate(selection.vendorId, selection.date),
-    );
+    Provider.family<AsyncValue<DailyEntry?>, EntryDateSelection>((
+      ref,
+      selection,
+    ) {
+      return ref.watch(vendorLedgerProvider(selection.vendorId)).whenData((
+        ledger,
+      ) {
+        for (final entry in ledger.entries.reversed) {
+          if (isSameDate(entry.date, selection.date)) {
+            return entry;
+          }
+          if (entry.date.isBefore(selection.date)) {
+            break;
+          }
+        }
+        return null;
+      });
+    });

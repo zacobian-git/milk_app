@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:milk_app/core/providers/ledger_providers.dart';
 import 'package:milk_app/core/utils/formatters.dart';
 import 'package:milk_app/data/database/database_providers.dart';
 import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/data/repositories/vendor_repository.dart';
+import 'package:milk_app/features/vendors/presentation/vendor_list_screen.dart'
+    show milkTypeLabel;
 import 'package:milk_app/l10n/app_localizations.dart';
 
 class VendorFormScreen extends ConsumerStatefulWidget {
@@ -59,7 +60,10 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
     _nameController.text = vendor.name;
     _phoneController.text = vendor.phone ?? '';
     _quantityController.text = formatLitres(vendor.defaultQtyMl);
-    _openingController.text = (vendor.openingBalancePaise ~/ 100).toString();
+    final opening = vendor.openingBalancePaise;
+    _openingController.text = opening % 100 == 0
+        ? '${opening ~/ 100}'
+        : '${opening ~/ 100}.${(opening % 100).toString().padLeft(2, '0')}';
     _timeController.text = vendor.deliveryTime ?? '';
     _notesController.text = vendor.notes ?? '';
     _milkType = vendor.milkType;
@@ -75,7 +79,7 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
     final ratePaise = parseRupeesToPaise(_rateController.text);
     if (quantityMl == null ||
         openingBalancePaise == null ||
-        (existing == null && ratePaise == null)) {
+        (existing == null && (ratePaise == null || ratePaise <= 0))) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(strings.invalidAmount)));
       return;
@@ -108,7 +112,6 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
           ),
         );
       }
-      ref.invalidate(activeVendorsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(strings.vendorSaved)));
@@ -134,6 +137,25 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
   }
 
   String? _optional(String value) => value.trim().isEmpty ? null : value.trim();
+
+  Future<void> _pickTime() async {
+    final parts = _timeController.text.split(':');
+    final initial = parts.length == 2
+        ? TimeOfDay(
+            hour: int.tryParse(parts[0]) ?? 7,
+            minute: int.tryParse(parts[1]) ?? 0,
+          )
+        : const TimeOfDay(hour: 7, minute: 0);
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: initial,
+    );
+    if (selected != null) {
+      _timeController.text =
+          '${selected.hour.toString().padLeft(2, '0')}:'
+          '${selected.minute.toString().padLeft(2, '0')}';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -186,29 +208,33 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
                     label: strings.phoneNumber,
                     keyboardType: TextInputType.phone,
                   ),
-                  DropdownButtonFormField<String>(
-                    initialValue: _milkType,
-                    decoration: InputDecoration(labelText: strings.milkType),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'cow',
-                        child: Text(strings.cowMilk),
-                      ),
-                      DropdownMenuItem(
-                        value: 'buffalo',
-                        child: Text(strings.buffaloMilk),
-                      ),
-                      DropdownMenuItem(
-                        value: 'mixed',
-                        child: Text(strings.mixedMilk),
-                      ),
-                      DropdownMenuItem(
-                        value: 'other',
-                        child: Text(strings.otherMilk),
-                      ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => _milkType = value ?? 'cow'),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                    child: Text(
+                      strings.milkType,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final type in const [
+                          'cow',
+                          'buffalo',
+                          'mixed',
+                          'other',
+                        ])
+                          ChoiceChip(
+                            label: Text(milkTypeLabel(strings, type)),
+                            selected: _milkType == type,
+                            onSelected: (_) =>
+                                setState(() => _milkType = type),
+                          ),
+                      ],
+                    ),
                   ),
                   _textField(
                     controller: _quantityController,
@@ -243,10 +269,29 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
                       FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
                     ],
                   ),
-                  _textField(
-                    controller: _timeController,
-                    label: strings.deliveryTime,
-                    hint: '08:00',
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: TextFormField(
+                      controller: _timeController,
+                      readOnly: true,
+                      onTap: _pickTime,
+                      decoration: InputDecoration(
+                        labelText: strings.deliveryTime,
+                        hintText: strings.notSet,
+                        prefixIcon: const Icon(Icons.schedule_rounded),
+                        suffixIcon: ValueListenableBuilder(
+                          valueListenable: _timeController,
+                          builder: (context, value, child) =>
+                              value.text.isEmpty
+                              ? const SizedBox.shrink()
+                              : IconButton(
+                                  tooltip: strings.clear,
+                                  onPressed: _timeController.clear,
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                        ),
+                      ),
+                    ),
                   ),
                   _textField(
                     controller: _notesController,
@@ -254,14 +299,27 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
                     maxLines: 3,
                   ),
                   const SizedBox(height: 12),
-                  FilledButton(
+                  FilledButton.icon(
                     onPressed: _saving
                         ? null
                         : () => _save(repository, existing),
-                    child: _saving
-                        ? const CircularProgressIndicator()
-                        : Text(strings.save),
+                    icon: _saving
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined),
+                    label: Text(strings.save),
                   ),
+                  if (existing != null) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          context.push('/vendors/${existing.id}/rates'),
+                      icon: const Icon(Icons.price_change_outlined),
+                      label: Text(strings.rateHistory),
+                    ),
+                  ],
                 ],
               ),
             ),

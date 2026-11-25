@@ -34,13 +34,29 @@ class _AppLockGateState extends ConsumerState<AppLockGate>
     super.dispose();
   }
 
+  /// Re-lock only after the app was really in the background for a while.
+  /// Share sheets, file pickers and the fingerprint prompt itself briefly
+  /// make the app inactive, and must not trigger another unlock.
+  static const _relockAfter = Duration(seconds: 30);
+  DateTime? _backgroundedAt;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final locked = ref.read(appSettingsProvider).value?.appLockEnabled;
-    if (locked == true && state == AppLifecycleState.inactive) {
-      setState(() => _unlocked = false);
-    } else if (locked == true && state == AppLifecycleState.resumed) {
-      unawaited(_authenticate());
+    final locked = ref.read(appSettingsProvider).value?.appLockEnabled ?? false;
+    if (!locked) {
+      return;
+    }
+    if (state == AppLifecycleState.paused) {
+      _backgroundedAt ??= DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      final since = _backgroundedAt;
+      _backgroundedAt = null;
+      if (since != null &&
+          !_authenticating &&
+          DateTime.now().difference(since) >= _relockAfter) {
+        setState(() => _unlocked = false);
+        unawaited(_authenticate());
+      }
     }
   }
 
@@ -99,22 +115,51 @@ class _AppLockGateState extends ConsumerState<AppLockGate>
       return widget.child;
     }
     final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.lock_outline, size: 64),
-            const SizedBox(height: 16),
-            Text(strings.appLocked),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _authenticating ? null : _authenticate,
-              child: _authenticating
-                  ? const CircularProgressIndicator()
-                  : Text(strings.unlock),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 112,
+                  height: 112,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.lock_rounded,
+                    size: 52,
+                    color: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  strings.appTitle,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(strings.appLocked, textAlign: TextAlign.center),
+                const SizedBox(height: 28),
+                FilledButton.icon(
+                  onPressed: _authenticating ? null : _authenticate,
+                  icon: _authenticating
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.fingerprint_rounded),
+                  label: Text(strings.unlock),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

@@ -88,6 +88,22 @@ class DailyEntryRepository {
     required DateTime startDate,
     required DateTime endDate,
     required int defaultQtyMl,
+  }) => markUnmarkedDays(
+    vendorId: vendorId,
+    startDate: startDate,
+    endDate: endDate,
+    defaultQtyMl: defaultQtyMl,
+    status: DailyEntryStatus.delivered,
+  );
+
+  /// Fills every unmarked day in the range with [status]. Days that already
+  /// have an entry are left untouched. Returns the number of days written.
+  Future<int> markUnmarkedDays({
+    required int vendorId,
+    required DateTime startDate,
+    required DateTime endDate,
+    required int defaultQtyMl,
+    required DailyEntryStatus status,
   }) async {
     final start = dateOnly(startDate);
     final end = dateOnly(endDate);
@@ -106,6 +122,7 @@ class DailyEntryRepository {
           )
           .toList(growable: false),
       existingDates: existingEntries.map((entry) => entry.date).toSet(),
+      status: status,
     );
     await _dao.saveEntries(
       drafts

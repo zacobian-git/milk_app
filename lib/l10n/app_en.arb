@@ -184,8 +184,50 @@
   "reminderChannel": "Milk ledger reminders",
   "reminderChannelDescription": "A daily reminder to update today’s milk entry.",
   "authReason": "Unlock Doodh Hisaab",
-  "backupUnavailable": "Backup could not be completed."
-  ,  "deletePaymentQuestion": "Delete this payment?",
+  "backupUnavailable": "Backup could not be completed.",
+  "deletePaymentQuestion": "Delete this payment?",
   "unlock": "Unlock",
-  "appLocked": "Your ledger is locked."
+  "appLocked": "Your ledger is locked.",
+  "totalDue": "Total due",
+  "totalAdvance": "Total advance",
+  "markAllDelivered": "Mark all delivered",
+  "allDoneToday": "All done for today",
+  "pendingToday": "{count} left to mark today",
+  "@pendingToday": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editTodayEntry": "Edit today's entry",
+  "date": "Date",
+  "status": "Status",
+  "printBill": "Print or save PDF",
+  "averagePerDay": "Average per day",
+  "archivedVendors": "Removed vendors",
+  "restoreVendor": "Bring back",
+  "vendorRestored": "Vendor restored",
+  "deleteRateQuestion": "Delete this rate? Entries already saved keep their rate.",
+  "cannotDeleteOnlyRate": "At least one rate is needed.",
+  "rateDeleted": "Rate deleted",
+  "currentRate": "Current rate",
+  "generalSection": "General",
+  "remindersSection": "Reminders",
+  "dataSection": "Backup",
+  "securitySection": "Security",
+  "quantityStep": "Quantity step",
+  "quantityStepHint": "How much + and − change the quantity",
+  "notSet": "Not set",
+  "clear": "Clear",
+  "markRangeTitle": "Fill many days at once",
+  "markRangeDelivered": "Milk came on all unmarked days",
+  "markRangeSkipped": "No milk on unmarked days (holiday)",
+  "bulkSkipQuestion": "Mark all unmarked days in the selected range as no delivery?",
+  "billGeneratedOn": "Generated on {date}",
+  "@billGeneratedOn": {
+    "placeholders": {
+      "date": {}
+    }
+  }
 }

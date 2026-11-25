@@ -121,6 +121,7 @@ List<DailyEntryDraft> buildBulkDeliveryEntries({
   required int defaultQtyMl,
   required Iterable<MilkRate> rates,
   required Set<DateTime> existingDates,
+  DailyEntryStatus status = DailyEntryStatus.delivered,
 }) {
   if (defaultQtyMl < 0) {
     throw ArgumentError.value(defaultQtyMl, 'defaultQtyMl');
@@ -134,11 +135,8 @@ List<DailyEntryDraft> buildBulkDeliveryEntries({
   final normalizedExistingDates = existingDates.map(dateOnly).toSet();
   final applicableRates = rates.toList(growable: false);
   final entries = <DailyEntryDraft>[];
-  for (
-    var date = start;
-    !date.isAfter(end);
-    date = date.add(const Duration(days: 1))
-  ) {
+  final isSkipped = status == DailyEntryStatus.skipped;
+  for (var date = start; !date.isAfter(end); date = addDays(date, 1)) {
     if (normalizedExistingDates.contains(date)) {
       continue;
     }
@@ -152,9 +150,9 @@ List<DailyEntryDraft> buildBulkDeliveryEntries({
     entries.add(
       DailyEntryDraft(
         date: date,
-        quantityMl: defaultQtyMl,
+        quantityMl: isSkipped ? 0 : defaultQtyMl,
         rateUsedPaise: rate,
-        status: DailyEntryStatus.delivered,
+        status: isSkipped ? DailyEntryStatus.skipped : DailyEntryStatus.delivered,
       ),
     );
   }

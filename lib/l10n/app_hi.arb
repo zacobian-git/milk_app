@@ -184,8 +184,50 @@
   "reminderChannel": "दूध हिसाब की याद दिलाना",
   "reminderChannelDescription": "आज के दूध का हिसाब लिखने की रोज़ की याद।",
   "authReason": "दूध हिसाब खोलें",
-  "backupUnavailable": "बैकअप पूरा नहीं हो सका।"
-  ,  "deletePaymentQuestion": "यह भुगतान हटाएँ?",
+  "backupUnavailable": "बैकअप पूरा नहीं हो सका।",
+  "deletePaymentQuestion": "यह भुगतान हटाएँ?",
   "unlock": "खोलें",
-  "appLocked": "आपका हिसाब लॉक है।"
+  "appLocked": "आपका हिसाब लॉक है।",
+  "totalDue": "कुल बकाया",
+  "totalAdvance": "कुल एडवांस",
+  "markAllDelivered": "सबका दूध आ गया",
+  "allDoneToday": "आज का सारा हिसाब लिख दिया",
+  "pendingToday": "आज {count} का हिसाब बाकी",
+  "@pendingToday": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "editTodayEntry": "आज की एंट्री बदलें",
+  "date": "तारीख",
+  "status": "स्थिति",
+  "printBill": "प्रिंट या PDF सेव करें",
+  "averagePerDay": "रोज़ का औसत",
+  "archivedVendors": "हटाए गए दूधवाले",
+  "restoreVendor": "वापस लाएँ",
+  "vendorRestored": "दूधवाला वापस जोड़ा गया",
+  "deleteRateQuestion": "यह रेट हटाएँ? पहले से लिखी एंट्री का रेट नहीं बदलेगा।",
+  "cannotDeleteOnlyRate": "कम से कम एक रेट ज़रूरी है।",
+  "rateDeleted": "रेट हटाया गया",
+  "currentRate": "अभी का रेट",
+  "generalSection": "सामान्य",
+  "remindersSection": "याद दिलाना",
+  "dataSection": "बैकअप",
+  "securitySection": "सुरक्षा",
+  "quantityStep": "मात्रा का अंतर",
+  "quantityStepHint": "+ और − दबाने पर मात्रा कितनी बदले",
+  "notSet": "तय नहीं",
+  "clear": "हटाएँ",
+  "markRangeTitle": "कई दिन एक साथ भरें",
+  "markRangeDelivered": "जिन दिनों का हिसाब नहीं लिखा, उनमें दूध आया",
+  "markRangeSkipped": "जिन दिनों का हिसाब नहीं लिखा, उनमें दूध नहीं आया (छुट्टी)",
+  "bulkSkipQuestion": "चुने गए दिनों में जिन दिनों का हिसाब नहीं लिखा, उन्हें 'दूध नहीं आया' लिखें?",
+  "billGeneratedOn": "{date} को बनाया गया",
+  "@billGeneratedOn": {
+    "placeholders": {
+      "date": {}
+    }
+  }
 }

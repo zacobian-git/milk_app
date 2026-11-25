@@ -1,15 +1,18 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:milk_app/core/providers/ledger_providers.dart';
 import 'package:milk_app/core/utils/formatters.dart';
+import 'package:milk_app/core/widgets/common_widgets.dart';
 import 'package:milk_app/data/database/database_providers.dart';
 import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/domain/models/ledger_enums.dart';
 import 'package:milk_app/domain/utils/ledger_dates.dart';
+import 'package:milk_app/features/calendar/presentation/daily_entry_editor_sheet.dart';
 import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/features/settings/application/app_settings_provider.dart';
 import 'package:milk_app/features/settings/application/reminder_actions.dart';
@@ -23,156 +26,125 @@ class CalendarScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
-  DateTime _focusedDay = DateTime.now();
+  DateTime _month = monthStart(DateTime.now());
   DateTime? _selectedDay;
-  int? _vendorId;
+
+  /// +1 when moving forward in time, -1 when moving back; drives the slide.
+  int _direction = 1;
+
+  void _changeMonth(DateTime month) {
+    final target = monthStart(month);
+    if (target.year < 2000 || target.year > 2100 || target == _month) {
+      return;
+    }
+    HapticFeedback.selectionClick();
+    setState(() {
+      _direction = target.isAfter(_month) ? 1 : -1;
+      _month = target;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context)!;
     final vendors = ref.watch(activeVendorsProvider);
+    final isCurrentMonth = isSameMonth(_month, DateTime.now());
 
     return Scaffold(
-      appBar: AppBar(title: Text(strings.calendar)),
+      appBar: AppBar(
+        title: Text(strings.calendar),
+        actions: [
+          AnimatedOpacity(
+            duration: kShortAnimation,
+            opacity: isCurrentMonth ? 0 : 1,
+            child: IconButton(
+              tooltip: strings.today,
+              onPressed: isCurrentMonth
+                  ? null
+                  : () => _changeMonth(DateTime.now()),
+              icon: const Icon(Icons.today_rounded),
+            ),
+          ),
+        ],
+      ),
       body: vendors.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => Center(
-          child: TextButton(
-            onPressed: () => ref.invalidate(activeVendorsProvider),
-            child: Text(strings.retry),
-          ),
-        ),
+        error: (error, stackTrace) =>
+            ErrorState(onRetry: () => ref.invalidate(activeVendorsProvider)),
         data: (items) {
           if (items.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(strings.noVendors),
-                  FilledButton(
-                    onPressed: () => context.push('/vendors/new'),
-                    child: Text(strings.addVendor),
-                  ),
-                ],
-              ),
+            return EmptyState(
+              icon: Icons.calendar_month_rounded,
+              title: strings.noVendors,
+              message: strings.addFirstVendor,
+              actionLabel: strings.addVendor,
+              actionIcon: Icons.person_add_alt_1,
+              onAction: () => context.push('/vendors/new'),
             );
           }
-          final selectedVendor = items.any((item) => item.id == _vendorId)
-              ? items.firstWhere((item) => item.id == _vendorId)
-              : items.first;
-          if (_vendorId != selectedVendor.id) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                setState(() => _vendorId = selectedVendor.id);
-              }
-            });
-          }
-          final selection = (
-            vendorId: selectedVendor.id,
-            year: _focusedDay.year,
-            month: _focusedDay.month,
+          final vendor = resolveSelectedVendor(
+            items,
+            ref.watch(selectedVendorIdProvider),
           );
-          final entries = ref.watch(entriesForMonthProvider(selection));
-          final summary = ref.watch(monthlyReportProvider(selection));
+          final selection = (
+            vendorId: vendor.id,
+            year: _month.year,
+            month: _month.month,
+          );
+          final report = ref.watch(monthlyReportProvider(selection));
 
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.only(bottom: 32),
             children: [
-              DropdownButtonFormField<int>(
-                initialValue: selectedVendor.id,
-                decoration: InputDecoration(labelText: strings.selectVendor),
-                items: [
-                  for (final vendor in items)
-                    DropdownMenuItem(
-                      value: vendor.id,
-                      child: Text(vendor.name),
+              VendorSelector(vendors: items, selected: vendor),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _MonthSummary(report: report),
+                    const SizedBox(height: 12),
+                    _MonthCalendar(
+                      month: _month,
+                      direction: _direction,
+                      selectedDay: _selectedDay,
+                      entries: report.value?.entries,
+                      onMonthChanged: _changeMonth,
+                      onDaySelected: (day) =>
+                          _openDay(vendor, day, report.value?.entries),
                     ),
-                ],
-                onChanged: (value) => setState(() => _vendorId = value),
-              ),
-              const SizedBox(height: 12),
-              summary.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (error, stackTrace) => Text(strings.errorOccurred),
-                data: (data) => Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
+                    const SizedBox(height: 12),
+                    const _Legend(),
+                    const SizedBox(height: 20),
+                    Row(
                       children: [
                         Expanded(
-                          child: _SummaryValue(
-                            title: strings.totalLitres,
-                            value:
-                                '${formatLitres(data.summary.totalQuantityMl)} ${strings.litreUnit}',
+                          child: OutlinedButton.icon(
+                            onPressed: () => _bulkMark(vendor),
+                            icon: const Icon(Icons.done_all_rounded),
+                            label: Text(
+                              strings.bulkEntry,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 12),
                         Expanded(
-                          child: _SummaryValue(
-                            title: strings.totalAmount,
-                            value: formatMoney(
-                              data.summary.totalAmountPaise,
-                              strings.localeName,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _openBackdatedEntry(vendor),
+                            icon: const Icon(Icons.history_rounded),
+                            label: Text(
+                              strings.backdateEntry,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 8),
-              entries.when(
-                loading: () => const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-                error: (error, stackTrace) => Text(strings.errorOccurred),
-                data: (monthEntries) => _MonthCalendar(
-                  focusedDay: _focusedDay,
-                  selectedDay: _selectedDay,
-                  entries: monthEntries,
-                  onPageChanged: (day) => setState(() => _focusedDay = day),
-                  onDaySelected: (selected, focused) async {
-                    setState(() {
-                      _selectedDay = selected;
-                      _focusedDay = focused;
-                    });
-                    DailyEntry? existing;
-                    for (final entry in monthEntries) {
-                      if (isSameDate(entry.date, selected)) {
-                        existing = entry;
-                        break;
-                      }
-                    }
-                    await _editEntryForDate(
-                      context: context,
-                      ref: ref,
-                      vendor: selectedVendor,
-                      date: selected,
-                      existing: existing,
-                      strings: strings,
-                    );
-                  },
-                  strings: strings,
-                ),
-              ),
-              const SizedBox(height: 8),
-              _Legend(strings: strings),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () =>
-                    _bulkMark(context, ref, selectedVendor, _focusedDay),
-                icon: const Icon(Icons.done_all),
-                label: Text(strings.bulkEntry),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () =>
-                    _openBackdatedEntry(context, ref, selectedVendor, strings),
-                icon: const Icon(Icons.history),
-                label: Text(strings.backdateEntry),
               ),
             ],
           );
@@ -181,198 +153,149 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  Future<void> _openBackdatedEntry(
-    BuildContext context,
-    WidgetRef ref,
+  Future<void> _openDay(
     Vendor vendor,
-    AppLocalizations strings,
+    DateTime day,
+    List<DailyEntry>? monthEntries,
   ) async {
+    final inViewedMonth = isSameMonth(day, _month);
+    setState(() => _selectedDay = day);
+    if (!inViewedMonth) {
+      _changeMonth(day);
+    }
+    DailyEntry? existing;
+    if (monthEntries != null && inViewedMonth) {
+      for (final entry in monthEntries) {
+        if (isSameDate(entry.date, day)) {
+          existing = entry;
+          break;
+        }
+      }
+    } else {
+      existing = await ref
+          .read(dailyEntryRepositoryProvider)
+          .getEntryForDate(vendor.id, day);
+    }
+    if (!mounted) {
+      return;
+    }
+    await showDailyEntryEditor(
+      context: context,
+      ref: ref,
+      vendor: vendor,
+      date: day,
+      existing: existing,
+    );
+  }
+
+  Future<void> _openBackdatedEntry(Vendor vendor) async {
     final today = dateOnly(DateTime.now());
     final selectedDate = await showDatePicker(
       context: context,
-      initialDate: today,
+      initialDate: _selectedDay != null && !_selectedDay!.isAfter(today)
+          ? _selectedDay!
+          : today,
       firstDate: DateTime(2000),
       lastDate: today,
     );
-    if (selectedDate == null || !context.mounted) {
+    if (selectedDate == null || !mounted) {
       return;
     }
-
-    final date = dateOnly(selectedDate);
-    setState(() {
-      _selectedDay = date;
-      _focusedDay = date;
-    });
     try {
-      final existing = await ref
-          .read(dailyEntryRepositoryProvider)
-          .getEntryForDate(vendor.id, date);
-      if (!context.mounted) {
-        return;
-      }
-      await _editEntryForDate(
-        context: context,
-        ref: ref,
-        vendor: vendor,
-        date: date,
-        existing: existing,
-        strings: strings,
-      );
+      await _openDay(vendor, dateOnly(selectedDate), null);
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'backdated milk entry',
-        ),
-      );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
+      reportUiError(error, stackTrace, 'backdated milk entry');
+      if (mounted) {
+        showAppSnackBar(context, AppLocalizations.of(context)!.errorOccurred);
       }
     }
   }
 
-  Future<void> _editEntryForDate({
-    required BuildContext context,
-    required WidgetRef ref,
-    required Vendor vendor,
-    required DateTime date,
-    required DailyEntry? existing,
-    required AppLocalizations strings,
-  }) async {
-    final result = await showModalBottomSheet<DailyEntryEditorResult>(
+  Future<void> _bulkMark(Vendor vendor) async {
+    final strings = AppLocalizations.of(context)!;
+    final status = await showModalBottomSheet<DailyEntryStatus>(
       context: context,
-      isScrollControlled: true,
       useSafeArea: true,
-      builder: (context) =>
-          DailyEntryEditorSheet(vendor: vendor, date: date, existing: existing),
+      builder: (context) => _BulkStatusSheet(strings: strings),
     );
-    if (result == null || !context.mounted) {
+    if (status == null || !mounted) {
       return;
     }
 
-    ref.invalidate(entriesForMonthProvider);
-    ref.invalidate(monthlyReportProvider);
-    if (isSameDate(date, DateTime.now())) {
-      unawaited(
-        scheduleReminderAfterEntryChange(
-          ref: ref,
-          settings: ref.read(appSettingsProvider).value,
-          strings: strings,
-        ),
-      );
-    }
-    if (result == DailyEntryEditorResult.deleted && existing != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(strings.entryDeleted),
-            action: SnackBarAction(
-              label: strings.undo,
-              onPressed: () =>
-                  unawaited(_undoDeletedEntry(ref, vendor, existing, strings)),
-            ),
-          ),
-        );
-    }
-  }
-
-  Future<void> _bulkMark(
-    BuildContext context,
-    WidgetRef ref,
-    Vendor vendor,
-    DateTime month,
-  ) async {
-    final strings = AppLocalizations.of(context)!;
     late final DateTime firstRateDate;
     try {
-      final rateHistory = await ref
-          .read(vendorRepositoryProvider)
-          .getRateHistory(vendor.id);
-      if (rateHistory.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(strings.noRateHistory)));
+      final ledger = await ref.read(vendorLedgerProvider(vendor.id).future);
+      if (ledger.rates.isEmpty) {
+        if (mounted) {
+          showAppSnackBar(context, strings.noRateHistory);
         }
         return;
       }
-      firstRateDate = dateOnly(rateHistory.first.effectiveFrom);
+      firstRateDate = dateOnly(ledger.rates.first.effectiveFrom);
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'load rates for bulk entry',
-        ),
-      );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
+      reportUiError(error, stackTrace, 'load rates for bulk entry');
+      if (mounted) {
+        showAppSnackBar(context, strings.errorOccurred);
       }
       return;
     }
-    if (!context.mounted) {
+    if (!mounted) {
       return;
     }
-    final monthStart = DateTime(month.year, month.month);
-    final monthEnd = DateTime(month.year, month.month + 1, 0);
+
+    // Deliveries can only be recorded up to today; holidays can be planned.
     final today = dateOnly(DateTime.now());
-    final rangeEnd = isSameDate(month, today)
-        ? today
-        : monthStart.isAfter(today)
-        ? monthStart
-        : monthEnd;
-    final initialStart = monthStart.isBefore(firstRateDate)
+    final isSkip = status == DailyEntryStatus.skipped;
+    final lastDate = isSkip ? addDays(today, 366) : today;
+    if (firstRateDate.isAfter(lastDate)) {
+      showAppSnackBar(context, strings.bulkEntryMissingRate);
+      return;
+    }
+    DateTime clamp(DateTime date) => date.isBefore(firstRateDate)
         ? firstRateDate
-        : monthStart;
-    final initialEnd = rangeEnd.isBefore(initialStart)
-        ? initialStart
-        : rangeEnd;
+        : date.isAfter(lastDate)
+        ? lastDate
+        : date;
+    final viewedStart = monthStart(_month);
+    final viewedEnd = monthEnd(_month);
+    var initialStart = clamp(
+      isSkip && isSameMonth(_month, today) ? today : viewedStart,
+    );
+    var initialEnd = clamp(viewedEnd);
+    if (initialStart.isAfter(initialEnd)) {
+      initialStart = clamp(today);
+      initialEnd = initialStart;
+    }
+
     final range = await showDateRangePicker(
       context: context,
       firstDate: firstRateDate,
-      lastDate: DateTime(2100),
+      lastDate: lastDate,
       initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),
     );
-    if (range == null || !context.mounted) {
+    if (range == null || !mounted) {
       return;
     }
-    final confirmed =
-        await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            content: Text(strings.bulkMarkQuestion),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(strings.cancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(strings.confirm),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!confirmed || !context.mounted) {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: strings.markRangeTitle,
+      message: isSkip ? strings.bulkSkipQuestion : strings.bulkMarkQuestion,
+    );
+    if (!confirmed || !mounted) {
       return;
     }
     try {
       final count = await ref
           .read(dailyEntryRepositoryProvider)
-          .markUnmarkedAsDelivered(
+          .markUnmarkedDays(
             vendorId: vendor.id,
             startDate: range.start,
             endDate: range.end,
             defaultQtyMl: vendor.defaultQtyMl,
+            status: status,
           );
-      ref.invalidate(entriesForMonthProvider);
-      ref.invalidate(monthlyReportProvider);
-      if (!range.start.isAfter(dateOnly(DateTime.now())) &&
-          !range.end.isBefore(dateOnly(DateTime.now()))) {
+      HapticFeedback.lightImpact();
+      if (!range.start.isAfter(today) && !range.end.isBefore(today)) {
         unawaited(
           scheduleReminderAfterEntryChange(
             ref: ref,
@@ -381,66 +304,126 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           ),
         );
       }
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.bulkMarkDone(count))));
+      if (mounted) {
+        showAppSnackBar(context, strings.bulkMarkDone(count));
       }
     } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'bulk mark deliveries',
-        ),
-      );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is StateError
-                  ? strings.bulkEntryMissingRate
-                  : strings.errorOccurred,
-            ),
-          ),
+      reportUiError(error, stackTrace, 'bulk mark days');
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          error is StateError
+              ? strings.bulkEntryMissingRate
+              : strings.errorOccurred,
         );
       }
     }
   }
 }
 
-enum DailyEntryEditorResult { saved, deleted }
+class _BulkStatusSheet extends StatelessWidget {
+  const _BulkStatusSheet({required this.strings});
 
-Future<void> _undoDeletedEntry(
-  WidgetRef ref,
-  Vendor vendor,
-  DailyEntry entry,
-  AppLocalizations strings,
-) async {
-  try {
-    await ref
-        .read(dailyEntryRepositoryProvider)
-        .undoEntryChange(
-          vendorId: vendor.id,
-          date: entry.date,
-          previousEntry: entry,
-        );
-    ref.invalidate(entriesForMonthProvider);
-    ref.invalidate(monthlyReportProvider);
-    if (isSameDate(entry.date, DateTime.now())) {
-      unawaited(
-        scheduleReminderAfterEntryChange(
-          ref: ref,
-          settings: ref.read(appSettingsProvider).value,
-          strings: strings,
-        ),
-      );
+  final AppLocalizations strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+            child: Text(
+              strings.markRangeTitle,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          ListTile(
+            leading: Icon(
+              Icons.check_circle_rounded,
+              color: entryStatusColor(context, DailyEntryStatus.delivered),
+            ),
+            title: Text(strings.markRangeDelivered),
+            onTap: () => Navigator.pop(context, DailyEntryStatus.delivered),
+          ),
+          ListTile(
+            leading: Icon(
+              Icons.beach_access_rounded,
+              color: entryStatusColor(context, DailyEntryStatus.skipped),
+            ),
+            title: Text(strings.markRangeSkipped),
+            onTap: () => Navigator.pop(context, DailyEntryStatus.skipped),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MonthSummary extends StatelessWidget {
+  const _MonthSummary({required this.report});
+
+  final AsyncValue<MonthlyReportData> report;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    final locale = strings.localeName;
+    final data = report.value;
+    if (data == null) {
+      return report.hasError
+          ? Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(strings.errorOccurred),
+              ),
+            )
+          : const SizedBox(height: 4, child: LinearProgressIndicator());
     }
-  } catch (error, stackTrace) {
-    FlutterError.reportError(
-      FlutterErrorDetails(
-        exception: error,
-        stack: stackTrace,
-        library: 'undo deleted daily entry',
+    final summary = data.summary;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Expanded(
+              child: StatTile(
+                label: strings.totalLitres,
+                value:
+                    '${formatLitres(summary.totalQuantityMl)} ${strings.litreUnit}',
+              ),
+            ),
+            Expanded(
+              child: StatTile(
+                label: strings.totalAmount,
+                value: formatMoney(summary.totalAmountPaise, locale),
+              ),
+            ),
+            Expanded(
+              child: StatTile(
+                label: strings.deliveredDays,
+                value: summary.deliveredDays.toString(),
+                valueColor: entryStatusColor(
+                  context,
+                  DailyEntryStatus.delivered,
+                ),
+              ),
+            ),
+            Expanded(
+              child: StatTile(
+                label: strings.skippedDays,
+                value: summary.skippedDays.toString(),
+                valueColor: entryStatusColor(context, DailyEntryStatus.skipped),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -448,76 +431,72 @@ Future<void> _undoDeletedEntry(
 
 class _MonthCalendar extends StatelessWidget {
   const _MonthCalendar({
-    required this.focusedDay,
+    required this.month,
+    required this.direction,
     required this.selectedDay,
     required this.entries,
-    required this.onPageChanged,
+    required this.onMonthChanged,
     required this.onDaySelected,
-    required this.strings,
   });
 
-  final DateTime focusedDay;
+  final DateTime month;
+  final int direction;
   final DateTime? selectedDay;
-  final List<DailyEntry> entries;
-  final ValueChanged<DateTime> onPageChanged;
-  final void Function(DateTime selectedDay, DateTime focusedDay) onDaySelected;
-  final AppLocalizations strings;
+  final List<DailyEntry>? entries;
+  final ValueChanged<DateTime> onMonthChanged;
+  final ValueChanged<DateTime> onDaySelected;
 
   @override
   Widget build(BuildContext context) {
-    final firstOfMonth = DateTime(focusedDay.year, focusedDay.month);
-    final leadingDays = firstOfMonth.weekday - DateTime.monday;
-    final daysInMonth = DateTime(focusedDay.year, focusedDay.month + 1, 0).day;
-    final visibleDayCount = ((leadingDays + daysInMonth + 6) ~/ 7) * 7;
-    final firstVisibleDay = firstOfMonth.subtract(Duration(days: leadingDays));
-    final weekdayStart = DateTime(2024, 1, 1);
-    final previousMonth = DateTime(focusedDay.year, focusedDay.month - 1);
-    final nextMonth = DateTime(focusedDay.year, focusedDay.month + 1);
+    final strings = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final weekdayStart = DateTime(2024, 1, 1); // A Monday.
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragEnd: (details) {
-            final velocity = details.primaryVelocity ?? 0;
-            if (velocity.abs() > 100) {
-              onPageChanged(
-                DateTime(
-                  focusedDay.year,
-                  focusedDay.month + (velocity < 0 ? 1 : -1),
-                ),
-              );
-            }
-          },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+          if (velocity.abs() > 150) {
+            onMonthChanged(
+              DateTime(month.year, month.month + (velocity < 0 ? 1 : -1)),
+            );
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
           child: Column(
             children: [
               Row(
                 children: [
                   IconButton(
                     tooltip: strings.previousMonth,
-                    onPressed: previousMonth.year < 2000
-                        ? null
-                        : () => onPageChanged(previousMonth),
-                    icon: const Icon(Icons.chevron_left),
+                    onPressed: () =>
+                        onMonthChanged(DateTime(month.year, month.month - 1)),
+                    icon: const Icon(Icons.chevron_left_rounded),
                   ),
                   Expanded(
-                    child: Center(
+                    child: AnimatedSwitcher(
+                      duration: kShortAnimation,
                       child: Text(
-                        DateFormat.yMMMM(strings.localeName).format(focusedDay),
-                        style: Theme.of(context).textTheme.titleMedium,
+                        DateFormat.yMMMM(strings.localeName).format(month),
+                        key: ValueKey(month),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
                   IconButton(
                     tooltip: strings.nextMonth,
-                    onPressed: nextMonth.year > 2100
-                        ? null
-                        : () => onPageChanged(nextMonth),
-                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () =>
+                        onMonthChanged(DateTime(month.year, month.month + 1)),
+                    icon: const Icon(Icons.chevron_right_rounded),
                   ),
                 ],
               ),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   for (var weekday = 0; weekday < 7; weekday++)
@@ -526,107 +505,48 @@ class _MonthCalendar extends StatelessWidget {
                         child: Text(
                           DateFormat.E(
                             strings.localeName,
-                          ).format(weekdayStart.add(Duration(days: weekday))),
+                          ).format(addDays(weekdayStart, weekday)),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 4),
-              GridView.builder(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  mainAxisExtent: 48,
+              const SizedBox(height: 6),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (currentChild, previousChildren) => Stack(
+                  alignment: Alignment.topCenter,
+                  children: [...previousChildren, ?currentChild],
                 ),
-                itemCount: visibleDayCount,
-                itemBuilder: (context, index) {
-                  final day = firstVisibleDay.add(Duration(days: index));
-                  DailyEntry? entry;
-                  for (final item in entries) {
-                    if (isSameDate(item.date, day)) {
-                      entry = item;
-                      break;
-                    }
-                  }
-                  final isInMonth = day.month == focusedDay.month;
-                  final isSelected =
-                      selectedDay != null && isSameDate(day, selectedDay!);
-                  final isToday = isSameDate(day, DateTime.now());
-                  final colors = Theme.of(context).colorScheme;
-                  final statusColor = switch (entry?.status) {
-                    DailyEntryStatus.delivered => colors.primary,
-                    DailyEntryStatus.skipped => colors.error,
-                    DailyEntryStatus.custom => Colors.orange.shade700,
-                    null => colors.outline,
-                  };
-                  final statusLabel = switch (entry?.status) {
-                    DailyEntryStatus.delivered => strings.delivered,
-                    DailyEntryStatus.skipped => strings.skipped,
-                    DailyEntryStatus.custom => strings.customQuantity,
-                    null => strings.unmarked,
-                  };
-                  final semanticLabel =
-                      '${formatDate(day, strings.localeName)}, $statusLabel';
-
-                  return Semantics(
-                    label: semanticLabel,
-                    button: true,
-                    selected: isSelected,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () => onDaySelected(day, focusedDay),
-                      child: Container(
-                        margin: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? colors.primaryContainer
-                              : entry == null
-                              ? null
-                              : statusColor.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                          border: isToday
-                              ? Border.all(color: colors.primary)
-                              : null,
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              day.day.toString(),
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: isInMonth
-                                        ? colors.onSurface
-                                        : colors.outline,
-                                    fontWeight: isToday || isSelected
-                                        ? FontWeight.w700
-                                        : null,
-                                  ),
-                            ),
-                            if (entry == null)
-                              const SizedBox(height: 14)
-                            else
-                              Icon(
-                                entry.status == DailyEntryStatus.skipped
-                                    ? Icons.close_rounded
-                                    : entry.status == DailyEntryStatus.custom
-                                    ? Icons.water_drop_outlined
-                                    : Icons.check_rounded,
-                                size: 14,
-                                color: statusColor,
-                              ),
-                          ],
-                        ),
-                      ),
+                transitionBuilder: (child, animation) {
+                  final incoming = child.key == ValueKey(month);
+                  final offset = Tween<Offset>(
+                    begin: Offset(
+                      (incoming ? 0.25 : -0.25) * direction,
+                      0,
                     ),
+                    end: Offset.zero,
+                  ).animate(animation);
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(position: offset, child: child),
                   );
                 },
+                child: _DayGrid(
+                  key: ValueKey(month),
+                  month: month,
+                  selectedDay: selectedDay,
+                  entries: entries,
+                  onDaySelected: onDaySelected,
+                ),
               ),
             ],
           ),
@@ -636,292 +556,160 @@ class _MonthCalendar extends StatelessWidget {
   }
 }
 
-class DailyEntryEditorSheet extends ConsumerStatefulWidget {
-  const DailyEntryEditorSheet({
+class _DayGrid extends StatelessWidget {
+  const _DayGrid({
     super.key,
-    required this.vendor,
-    required this.date,
-    this.existing,
+    required this.month,
+    required this.selectedDay,
+    required this.entries,
+    required this.onDaySelected,
   });
 
-  final Vendor vendor;
-  final DateTime date;
-  final DailyEntry? existing;
-
-  @override
-  ConsumerState<DailyEntryEditorSheet> createState() =>
-      _DailyEntryEditorSheetState();
-}
-
-class _DailyEntryEditorSheetState extends ConsumerState<DailyEntryEditorSheet> {
-  late int _quantityMl =
-      widget.existing?.quantityMl ?? widget.vendor.defaultQtyMl;
-  late DailyEntryStatus _status =
-      widget.existing?.status ?? DailyEntryStatus.delivered;
-  final _noteController = TextEditingController();
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _noteController.text = widget.existing?.note ?? '';
-  }
-
-  @override
-  void dispose() {
-    _noteController.dispose();
-    super.dispose();
-  }
+  final DateTime month;
+  final DateTime? selectedDay;
+  final List<DailyEntry>? entries;
+  final ValueChanged<DateTime> onDaySelected;
 
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context)!;
-    final date = formatDate(widget.date, strings.localeName);
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        16,
-        20,
-        20 + MediaQuery.viewInsetsOf(context).bottom,
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final firstOfMonth = monthStart(month);
+    final leadingDays = firstOfMonth.weekday - DateTime.monday;
+    final dayCount = daysInMonth(month.year, month.month);
+    final cellCount = ((leadingDays + dayCount + 6) ~/ 7) * 7;
+    final today = dateOnly(DateTime.now());
+
+    // One lookup table instead of scanning the list for every cell.
+    final byDay = <int, DailyEntry>{
+      for (final entry in entries ?? const <DailyEntry>[])
+        if (isSameMonth(entry.date, month)) entry.date.day: entry,
+    };
+
+    return GridView.builder(
+      padding: EdgeInsets.zero,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 7,
+        mainAxisExtent: 56,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            '${widget.vendor.name} · $date',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          SegmentedButton<DailyEntryStatus>(
-            segments: [
-              ButtonSegment(
-                value: DailyEntryStatus.delivered,
-                label: Text(strings.delivered),
+      itemCount: cellCount,
+      itemBuilder: (context, index) {
+        final dayNumber = index - leadingDays + 1;
+        if (dayNumber < 1 || dayNumber > dayCount) {
+          return const SizedBox.shrink();
+        }
+        final day = DateTime(month.year, month.month, dayNumber);
+        final entry = byDay[dayNumber];
+        final status = entry?.status;
+        final statusColor = entryStatusColor(context, status);
+        final isSelected = selectedDay != null && isSameDate(day, selectedDay!);
+        final isToday = day == today;
+        final isFuture = day.isAfter(today);
+
+        return Semantics(
+          label:
+              '${formatDate(day, strings.localeName)}, ${entryStatusLabel(strings, status)}',
+          button: true,
+          selected: isSelected,
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Material(
+              color: isSelected
+                  ? colors.primaryContainer
+                  : entry == null
+                  ? Colors.transparent
+                  : statusColor.withValues(alpha: 0.13),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: isToday
+                    ? BorderSide(color: colors.primary, width: 1.6)
+                    : BorderSide.none,
               ),
-              ButtonSegment(
-                value: DailyEntryStatus.skipped,
-                label: Text(strings.skipped),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => onDaySelected(day),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '$dayNumber',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: isFuture
+                            ? colors.onSurfaceVariant.withValues(alpha: 0.6)
+                            : colors.onSurface,
+                        fontWeight: isToday || isSelected
+                            ? FontWeight.w800
+                            : FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    SizedBox(
+                      height: 14,
+                      child: entry == null
+                          ? null
+                          : status == DailyEntryStatus.custom
+                          ? FittedBox(
+                              child: Text(
+                                formatLitres(entry.quantityMl),
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            )
+                          : Icon(
+                              entryStatusIcon(status),
+                              size: 14,
+                              color: statusColor,
+                            ),
+                    ),
+                  ],
+                ),
               ),
-              ButtonSegment(
-                value: DailyEntryStatus.custom,
-                label: Text(strings.customQuantity),
-              ),
-            ],
-            selected: {_status},
-            onSelectionChanged: (selection) =>
-                setState(() => _status = selection.first),
-          ),
-          if (_status != DailyEntryStatus.skipped) ...[
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton.filledTonal(
-                  tooltip: strings.changeQuantity,
-                  onPressed: _quantityMl >= 250
-                      ? () => setState(() => _quantityMl -= 250)
-                      : null,
-                  icon: const Icon(Icons.remove),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Text(
-                    '${formatLitres(_quantityMl)} ${strings.litreUnit}',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                ),
-                IconButton.filledTonal(
-                  tooltip: strings.changeQuantity,
-                  onPressed: () => setState(() => _quantityMl += 250),
-                  icon: const Icon(Icons.add),
-                ),
-              ],
             ),
-          ],
-          const SizedBox(height: 12),
-          TextField(
-            controller: _noteController,
-            decoration: InputDecoration(labelText: strings.notes),
           ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _saving ? null : _save,
-            child: _saving
-                ? const CircularProgressIndicator()
-                : Text(strings.save),
-          ),
-          if (widget.existing != null) ...[
-            const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: _saving ? null : _delete,
-              icon: const Icon(Icons.delete_outline),
-              label: Text(strings.delete),
-            ),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
-
-  Future<void> _save() async {
-    setState(() => _saving = true);
-    final strings = AppLocalizations.of(context)!;
-    try {
-      await ref
-          .read(dailyEntryRepositoryProvider)
-          .saveEntry(
-            vendorId: widget.vendor.id,
-            date: widget.date,
-            quantityMl: _quantityMl,
-            status: _status,
-            note: _noteController.text.trim().isEmpty
-                ? null
-                : _noteController.text.trim(),
-          );
-      if (mounted) {
-        Navigator.pop(context, DailyEntryEditorResult.saved);
-      }
-    } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'calendar entry',
-        ),
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _saving = false);
-      }
-    }
-  }
-
-  Future<void> _delete() async {
-    final entry = widget.existing;
-    if (entry == null) {
-      return;
-    }
-    final strings = AppLocalizations.of(context)!;
-    final confirmed =
-        await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            content: Text(strings.deleteEntryQuestion),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(strings.cancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(strings.delete),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (!confirmed || !mounted) {
-      return;
-    }
-    setState(() => _saving = true);
-    try {
-      await ref.read(dailyEntryRepositoryProvider).deleteEntry(entry.id);
-      if (mounted) {
-        Navigator.pop(context, DailyEntryEditorResult.deleted);
-      }
-    } catch (error, stackTrace) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stackTrace,
-          library: 'delete daily entry',
-        ),
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(strings.errorOccurred)));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _saving = false);
-      }
-    }
-  }
-}
-
-class _SummaryValue extends StatelessWidget {
-  const _SummaryValue({required this.title, required this.value});
-
-  final String title;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(title, style: Theme.of(context).textTheme.labelMedium),
-      Text(value, style: Theme.of(context).textTheme.titleMedium),
-    ],
-  );
 }
 
 class _Legend extends StatelessWidget {
-  const _Legend({required this.strings});
-
-  final AppLocalizations strings;
+  const _Legend();
 
   @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 16,
-    runSpacing: 8,
-    children: [
-      _LegendItem(
-        icon: Icons.check_circle,
-        color: Theme.of(context).colorScheme.primary,
-        label: strings.delivered,
-      ),
-      _LegendItem(
-        icon: Icons.close,
-        color: Theme.of(context).colorScheme.error,
-        label: strings.skipped,
-      ),
-      _LegendItem(
-        icon: Icons.water_drop_outlined,
-        color: Colors.orange.shade700,
-        label: strings.customQuantity,
-      ),
-      _LegendItem(
-        icon: Icons.circle_outlined,
-        color: Theme.of(context).colorScheme.outline,
-        label: strings.unmarked,
-      ),
-    ],
-  );
-}
-
-class _LegendItem extends StatelessWidget {
-  const _LegendItem({
-    required this.icon,
-    required this.color,
-    required this.label,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(icon, size: 16, color: color),
-      const SizedBox(width: 4),
-      Text(label, style: Theme.of(context).textTheme.labelSmall),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context)!;
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 16,
+      runSpacing: 8,
+      children: [
+        for (final status in [
+          DailyEntryStatus.delivered,
+          DailyEntryStatus.skipped,
+          DailyEntryStatus.custom,
+          null,
+        ])
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                entryStatusIcon(status),
+                size: 16,
+                color: entryStatusColor(context, status),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                entryStatusLabel(strings, status),
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          ),
+      ],
+    );
+  }
 }

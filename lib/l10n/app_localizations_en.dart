@@ -503,4 +503,98 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appLocked => 'Your ledger is locked.';
+
+  @override
+  String get totalDue => 'Total due';
+
+  @override
+  String get totalAdvance => 'Total advance';
+
+  @override
+  String get markAllDelivered => 'Mark all delivered';
+
+  @override
+  String get allDoneToday => 'All done for today';
+
+  @override
+  String pendingToday(int count) {
+    return '$count left to mark today';
+  }
+
+  @override
+  String get editTodayEntry => 'Edit today\'s entry';
+
+  @override
+  String get date => 'Date';
+
+  @override
+  String get status => 'Status';
+
+  @override
+  String get printBill => 'Print or save PDF';
+
+  @override
+  String get averagePerDay => 'Average per day';
+
+  @override
+  String get archivedVendors => 'Removed vendors';
+
+  @override
+  String get restoreVendor => 'Bring back';
+
+  @override
+  String get vendorRestored => 'Vendor restored';
+
+  @override
+  String get deleteRateQuestion => 'Delete this rate? Entries already saved keep their rate.';
+
+  @override
+  String get cannotDeleteOnlyRate => 'At least one rate is needed.';
+
+  @override
+  String get rateDeleted => 'Rate deleted';
+
+  @override
+  String get currentRate => 'Current rate';
+
+  @override
+  String get generalSection => 'General';
+
+  @override
+  String get remindersSection => 'Reminders';
+
+  @override
+  String get dataSection => 'Backup';
+
+  @override
+  String get securitySection => 'Security';
+
+  @override
+  String get quantityStep => 'Quantity step';
+
+  @override
+  String get quantityStepHint => 'How much + and − change the quantity';
+
+  @override
+  String get notSet => 'Not set';
+
+  @override
+  String get clear => 'Clear';
+
+  @override
+  String get markRangeTitle => 'Fill many days at once';
+
+  @override
+  String get markRangeDelivered => 'Milk came on all unmarked days';
+
+  @override
+  String get markRangeSkipped => 'No milk on unmarked days (holiday)';
+
+  @override
+  String get bulkSkipQuestion => 'Mark all unmarked days in the selected range as no delivery?';
+
+  @override
+  String billGeneratedOn(Object date) {
+    return 'Generated on $date';
+  }
 }
