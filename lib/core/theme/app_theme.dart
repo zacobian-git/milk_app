@@ -14,6 +14,12 @@ abstract final class AppTheme {
       ? customDark
       : customLight;
 
+  /// Money in the person's favour, such as an advance.
+  static Color positiveColor(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+      ? const Color(0xFF7FD8A6)
+      : const Color(0xFF1E7A4A);
+
   static final ThemeData light = _build(
     ColorScheme.fromSeed(seedColor: _deepTeal, surface: _milkWhite),
     scaffold: _milkWhite,

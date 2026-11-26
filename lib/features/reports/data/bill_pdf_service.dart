@@ -83,9 +83,8 @@ class BillPdfService {
   String buildSummaryText(MonthlyReportData report, AppLocalizations strings) {
     final locale = strings.localeName;
     final summary = report.summary;
-    final monthName = DateFormat.yMMMM(
-      locale,
-    ).format(DateTime(report.year, report.month));
+    final monthName = DateFormat.yMMMM(locale)
+        .format(DateTime(report.year, report.month));
     final closingLabel = summary.closingBalancePaise < 0
         ? strings.advance
         : strings.closingBalance;
@@ -222,9 +221,8 @@ class BillPdfService {
                 ),
                 pw.Text(
                   strings.reportMonth(
-                    DateFormat.MMMM(
-                      locale,
-                    ).format(DateTime(report.year, report.month)),
+                    DateFormat.MMMM(locale)
+                        .format(DateTime(report.year, report.month)),
                     report.year,
                   ),
                   style: const pw.TextStyle(
@@ -326,10 +324,7 @@ class BillPdfService {
             pw.SizedBox(height: 18),
             pw.Text(
               strings.paymentsThisMonth,
-              style: pw.TextStyle(
-                fontSize: 13,
-                fontWeight: pw.FontWeight.bold,
-              ),
+              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
             ),
             pw.SizedBox(height: 6),
             pw.TableHelper.fromTextArray(

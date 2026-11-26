@@ -36,9 +36,40 @@ class LedgerDao extends DatabaseAccessor<MilkDatabase> with _$LedgerDaoMixin {
       // A trivial query that drift re-runs whenever one of these tables
       // changes; each run triggers one fresh snapshot load.
       customSelect(
-        'SELECT 1',
-        readsFrom: {vendors, rateHistories, dailyEntries, payments},
-      ).watch().asyncMap((_) => _loadVendorLedger(vendorId));
+            'SELECT 1',
+            readsFrom: {vendors, rateHistories, dailyEntries, payments},
+          )
+          .watch()
+          .asyncMap((_) => _loadVendorLedger(vendorId))
+          .distinct(_sameLedger);
+
+  /// Drift notifies on any write to these tables, including writes for other
+  /// vendors. Dropping identical snapshots keeps unrelated vendors' widgets
+  /// and derived reports from rebuilding.
+  static bool _sameLedger(VendorLedgerSnapshot? a, VendorLedgerSnapshot? b) {
+    if (identical(a, b)) {
+      return true;
+    }
+    if (a == null || b == null) {
+      return false;
+    }
+    return a.vendor == b.vendor &&
+        _sameRows(a.rates, b.rates) &&
+        _sameRows(a.entries, b.entries) &&
+        _sameRows(a.payments, b.payments);
+  }
+
+  static bool _sameRows(List<Object> a, List<Object> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (var index = 0; index < a.length; index++) {
+      if (a[index] != b[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   Future<VendorLedgerSnapshot?> _loadVendorLedger(int vendorId) async {
     final vendor = await getVendor(vendorId);
@@ -191,10 +222,22 @@ class LedgerDao extends DatabaseAccessor<MilkDatabase> with _$LedgerDaoMixin {
     await transaction(() => _saveEntry(entry));
   }
 
+  /// Upserts many entries in one batch, keyed on the unique (vendor, date)
+  /// index, instead of a lookup plus a write per day.
   Future<void> saveEntries(List<DailyEntriesCompanion> entries) async {
-    await transaction(() async {
+    if (entries.isEmpty) {
+      return;
+    }
+    await batch((batch) {
       for (final entry in entries) {
-        await _saveEntry(entry);
+        batch.insert(
+          dailyEntries,
+          entry,
+          onConflict: DoUpdate(
+            (_) => entry,
+            target: [dailyEntries.vendorId, dailyEntries.date],
+          ),
+        );
       }
     });
   }

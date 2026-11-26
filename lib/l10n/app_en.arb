@@ -6,6 +6,21 @@
   "welcomeMessage": "Keep track of daily deliveries, payments and your monthly balance — all in one place.",
   "offlineMessage": "Your records stay on this phone. The app works without an internet connection.",
   "tabToday": "Today",
+  "goodMorning": "Good morning",
+  "goodAfternoon": "Good afternoon",
+  "goodEvening": "Good evening",
+  "quickActions": "Quick actions",
+  "monthProgress": "{delivered} of {days} days delivered",
+  "@monthProgress": {
+    "placeholders": {
+      "delivered": {
+        "type": "int"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "tabCalendar": "Calendar",
   "previousMonth": "Previous month",
   "nextMonth": "Next month",

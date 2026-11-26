@@ -35,6 +35,66 @@ void main() {
     effectiveFrom: DateTime(2025, 1, 1),
   );
 
+  test('ledger stream ignores writes that belong to another vendor', () async {
+    final vendorId = await addVendor();
+    final otherVendorId = await vendors.addVendorWithRate(
+      name: 'Shyam Dairy',
+      milkType: 'buffalo',
+      defaultQtyMl: 500,
+      ratePerLitrePaise: 7000,
+      effectiveFrom: DateTime(2025, 1, 1),
+    );
+    var emissions = 0;
+    final subscription = vendors
+        .watchVendorLedger(vendorId)
+        .listen((_) => emissions++);
+
+    await pumpEventQueue();
+    expect(emissions, 1);
+    await entries.saveEntry(
+      vendorId: otherVendorId,
+      date: DateTime(2025, 1, 2),
+      quantityMl: 500,
+      status: DailyEntryStatus.delivered,
+    );
+    await pumpEventQueue();
+    expect(emissions, 1);
+    await entries.saveEntry(
+      vendorId: vendorId,
+      date: DateTime(2025, 1, 2),
+      quantityMl: 1000,
+      status: DailyEntryStatus.delivered,
+    );
+    await pumpEventQueue();
+    expect(emissions, 2);
+    await subscription.cancel();
+  });
+
+  test('bulk marking upserts in one batch and keeps existing days', () async {
+    final vendorId = await addVendor();
+    await entries.saveEntry(
+      vendorId: vendorId,
+      date: DateTime(2025, 1, 3),
+      quantityMl: 0,
+      status: DailyEntryStatus.skipped,
+    );
+    final count = await entries.markUnmarkedDays(
+      vendorId: vendorId,
+      startDate: DateTime(2025, 1, 1),
+      endDate: DateTime(2025, 1, 5),
+      defaultQtyMl: 1000,
+      status: DailyEntryStatus.delivered,
+    );
+    final saved = await entries.getAllEntries(vendorId);
+
+    expect(count, 4);
+    expect(saved, hasLength(5));
+    expect(
+      saved.firstWhere((entry) => entry.date.day == 3).status,
+      DailyEntryStatus.skipped,
+    );
+  });
+
   test('ledger stream re-emits after writes to any ledger table', () async {
     final vendorId = await addVendor();
     final emissions = <int>[];
@@ -126,32 +186,35 @@ void main() {
     expect((await vendors.getActiveVendors()).single.id, vendorId);
   });
 
-  test('monthly report builds six months of insights ending at the month', () async {
-    final vendorId = await addVendor();
-    await entries.saveEntry(
-      vendorId: vendorId,
-      date: DateTime(2025, 1, 10),
-      quantityMl: 1000,
-      status: DailyEntryStatus.delivered,
-    );
-    await entries.saveEntry(
-      vendorId: vendorId,
-      date: DateTime(2025, 6, 10),
-      quantityMl: 2000,
-      status: DailyEntryStatus.custom,
-    );
-    final ledger = await vendors.watchVendorLedger(vendorId).first;
-    final report = buildMonthlyReport(ledger!, year: 2025, month: 6);
+  test(
+    'monthly report builds six months of insights ending at the month',
+    () async {
+      final vendorId = await addVendor();
+      await entries.saveEntry(
+        vendorId: vendorId,
+        date: DateTime(2025, 1, 10),
+        quantityMl: 1000,
+        status: DailyEntryStatus.delivered,
+      );
+      await entries.saveEntry(
+        vendorId: vendorId,
+        date: DateTime(2025, 6, 10),
+        quantityMl: 2000,
+        status: DailyEntryStatus.custom,
+      );
+      final ledger = await vendors.watchVendorLedger(vendorId).first;
+      final report = buildMonthlyReport(ledger!, year: 2025, month: 6);
 
-    expect(report.insights, hasLength(6));
-    expect(report.insights.first.month, DateTime(2025, 1));
-    expect(report.insights.last.month, DateTime(2025, 6));
-    expect(report.insights.first.amountPaise, 6000);
-    expect(report.insights.last.quantityMl, 2000);
-    expect(report.entries, hasLength(1));
-    expect(report.summary.carriedForwardPaise, 6000);
-    expect(report.averageDailyMl, 2000);
-  });
+      expect(report.insights, hasLength(6));
+      expect(report.insights.first.month, DateTime(2025, 1));
+      expect(report.insights.last.month, DateTime(2025, 6));
+      expect(report.insights.first.amountPaise, 6000);
+      expect(report.insights.last.quantityMl, 2000);
+      expect(report.entries, hasLength(1));
+      expect(report.summary.carriedForwardPaise, 6000);
+      expect(report.averageDailyMl, 2000);
+    },
+  );
 
   test('bulk entries walk calendar days across month ends', () {
     final drafts = buildBulkDeliveryEntries(

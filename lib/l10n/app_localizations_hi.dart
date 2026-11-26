@@ -30,6 +30,23 @@ class AppLocalizationsHi extends AppLocalizations {
   String get tabToday => 'आज';
 
   @override
+  String get goodMorning => 'सुप्रभात';
+
+  @override
+  String get goodAfternoon => 'नमस्ते';
+
+  @override
+  String get goodEvening => 'शुभ संध्या';
+
+  @override
+  String get quickActions => 'झटपट काम';
+
+  @override
+  String monthProgress(int delivered, int days) {
+    return '$days में से $delivered दिन दूध आया';
+  }
+
+  @override
   String get tabCalendar => 'कैलेंडर';
 
   @override

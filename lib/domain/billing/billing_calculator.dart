@@ -52,49 +52,42 @@ MonthlySummary calculateMonthlySummary({
 }) {
   final start = DateTime(year, month);
   final nextMonth = DateTime(year, month + 1);
-  final allEntries = entries.toList(growable: false);
-  final allPayments = payments.toList(growable: false);
 
-  final previousEntries = allEntries.where(
-    (entry) => entry.date.isBefore(start),
-  );
-  final previousPayments = allPayments.where(
-    (payment) => payment.date.isBefore(start),
-  );
-  final monthEntries = allEntries.where(
-    (entry) => !entry.date.isBefore(start) && entry.date.isBefore(nextMonth),
-  );
-  final monthPayments = allPayments.where(
-    (payment) =>
-        !payment.date.isBefore(start) && payment.date.isBefore(nextMonth),
-  );
-  final chargeableEntries = monthEntries
-      .where((entry) => entry.status != DailyEntryStatus.skipped)
-      .toList(growable: false);
-  final totalAmount = chargeableEntries.fold<int>(
-    0,
-    (total, entry) => total + amountForEntry(entry),
-  );
-  final paidThisMonth = monthPayments.fold<int>(
-    0,
-    (total, payment) => total + payment.amountPaise,
-  );
-  final carriedForward = calculateAccountBalance(
-    openingBalancePaise: openingBalancePaise,
-    entries: previousEntries,
-    payments: previousPayments,
-  );
+  // One pass over each list; this runs on every ledger change for every
+  // visible vendor, so it avoids building intermediate collections.
+  var carriedForward = openingBalancePaise;
+  var totalAmount = 0;
+  var totalQuantity = 0;
+  var deliveredDays = 0;
+  var skippedDays = 0;
+  for (final entry in entries) {
+    if (entry.date.isBefore(start)) {
+      carriedForward += amountForEntry(entry);
+    } else if (entry.date.isBefore(nextMonth)) {
+      if (entry.status == DailyEntryStatus.skipped) {
+        skippedDays++;
+      } else {
+        deliveredDays++;
+        totalQuantity += entry.quantityMl;
+        totalAmount += amountForEntry(entry);
+      }
+    }
+  }
+
+  var paidThisMonth = 0;
+  for (final payment in payments) {
+    if (payment.date.isBefore(start)) {
+      carriedForward -= payment.amountPaise;
+    } else if (payment.date.isBefore(nextMonth)) {
+      paidThisMonth += payment.amountPaise;
+    }
+  }
 
   return MonthlySummary(
-    totalQuantityMl: chargeableEntries.fold<int>(
-      0,
-      (total, entry) => total + entry.quantityMl,
-    ),
+    totalQuantityMl: totalQuantity,
     totalAmountPaise: totalAmount,
-    deliveredDays: chargeableEntries.length,
-    skippedDays: monthEntries
-        .where((entry) => entry.status == DailyEntryStatus.skipped)
-        .length,
+    deliveredDays: deliveredDays,
+    skippedDays: skippedDays,
     paidPaise: paidThisMonth,
     carriedForwardPaise: carriedForward,
     closingBalancePaise: carriedForward + totalAmount - paidThisMonth,
@@ -152,7 +145,9 @@ List<DailyEntryDraft> buildBulkDeliveryEntries({
         date: date,
         quantityMl: isSkipped ? 0 : defaultQtyMl,
         rateUsedPaise: rate,
-        status: isSkipped ? DailyEntryStatus.skipped : DailyEntryStatus.delivered,
+        status: isSkipped
+            ? DailyEntryStatus.skipped
+            : DailyEntryStatus.delivered,
       ),
     );
   }

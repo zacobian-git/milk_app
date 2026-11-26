@@ -5,10 +5,8 @@ import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/domain/billing/billing_calculator.dart';
 import 'package:milk_app/domain/models/billing_models.dart';
 import 'package:milk_app/domain/models/ledger_enums.dart';
-import 'package:milk_app/domain/utils/ledger_dates.dart';
 
 typedef MonthSelection = ({int vendorId, int year, int month});
-typedef EntryDateSelection = ({int vendorId, DateTime date});
 
 class MonthlyInsight {
   const MonthlyInsight({
@@ -59,19 +57,8 @@ MonthlyReportData buildMonthlyReport(
   required int month,
   int insightMonths = 6,
 }) {
-  final billingEntries = [
-    for (final entry in ledger.entries)
-      BillingEntry(
-        date: entry.date,
-        quantityMl: entry.quantityMl,
-        rateUsedPaise: entry.rateUsedPaise,
-        status: entry.status,
-      ),
-  ];
-  final paymentRecords = [
-    for (final payment in ledger.payments)
-      PaymentRecord(date: payment.date, amountPaise: payment.amountPaise),
-  ];
+  final billingEntries = billingEntriesOf(ledger);
+  final paymentRecords = paymentRecordsOf(ledger);
   final summary = calculateMonthlySummary(
     openingBalancePaise: ledger.vendor.openingBalancePaise,
     entries: billingEntries,
@@ -131,13 +118,38 @@ MonthlyReportData buildMonthlyReport(
   );
 }
 
-List<MilkRate> milkRatesOf(VendorLedgerSnapshot ledger) => [
-  for (final rate in ledger.rates)
-    MilkRate(
-      effectiveFrom: rate.effectiveFrom,
-      ratePerLitrePaise: rate.ratePerLitrePaise,
-    ),
-];
+// Conversions are cached per snapshot: the balance, the current month's
+// report and any other month's report all read the same snapshot, so they
+// share one converted list instead of each rebuilding it.
+final Expando<List<BillingEntry>> _billingEntriesCache = Expando();
+final Expando<List<PaymentRecord>> _paymentRecordsCache = Expando();
+final Expando<List<MilkRate>> _milkRatesCache = Expando();
+
+List<BillingEntry> billingEntriesOf(VendorLedgerSnapshot ledger) =>
+    _billingEntriesCache[ledger] ??= List.unmodifiable([
+      for (final entry in ledger.entries)
+        BillingEntry(
+          date: entry.date,
+          quantityMl: entry.quantityMl,
+          rateUsedPaise: entry.rateUsedPaise,
+          status: entry.status,
+        ),
+    ]);
+
+List<PaymentRecord> paymentRecordsOf(VendorLedgerSnapshot ledger) =>
+    _paymentRecordsCache[ledger] ??= List.unmodifiable([
+      for (final payment in ledger.payments)
+        PaymentRecord(date: payment.date, amountPaise: payment.amountPaise),
+    ]);
+
+List<MilkRate> milkRatesOf(VendorLedgerSnapshot ledger) =>
+    _milkRatesCache[ledger] ??= List.unmodifiable([
+      for (final rate in ledger.rates)
+        MilkRate(
+          effectiveFrom: rate.effectiveFrom,
+          ratePerLitrePaise: rate.ratePerLitrePaise,
+        ),
+    ]);
 
 /// The single source of truth for a vendor's data. It re-emits after every
 /// database write, so derived providers below never need manual invalidation.
@@ -145,19 +157,20 @@ final vendorLedgerProvider = StreamProvider.family<VendorLedgerSnapshot, int>((
   ref,
   vendorId,
 ) {
-  return ref
-      .watch(vendorRepositoryProvider)
-      .watchVendorLedger(vendorId)
-      .map((ledger) {
-        if (ledger == null) {
-          throw StateError('The selected vendor no longer exists.');
-        }
-        return ledger;
-      });
+  return ref.watch(vendorRepositoryProvider).watchVendorLedger(vendorId).map((
+    ledger,
+  ) {
+    if (ledger == null) {
+      throw StateError('The selected vendor no longer exists.');
+    }
+    return ledger;
+  });
 });
 
-final monthlyReportProvider =
-    Provider.family<AsyncValue<MonthlyReportData>, MonthSelection>(
+/// Auto-disposed: one exists per (vendor, month) ever viewed, and a kept-alive
+/// one would recompute on every write long after its screen moved on.
+final monthlyReportProvider = Provider.autoDispose
+    .family<AsyncValue<MonthlyReportData>, MonthSelection>(
       (ref, selection) => ref
           .watch(vendorLedgerProvider(selection.vendorId))
           .whenData(
@@ -176,65 +189,14 @@ final vendorBalanceProvider = Provider.family<AsyncValue<int>, int>(
       .whenData(
         (ledger) => calculateAccountBalance(
           openingBalancePaise: ledger.vendor.openingBalancePaise,
-          entries: [
-            for (final entry in ledger.entries)
-              BillingEntry(
-                date: entry.date,
-                quantityMl: entry.quantityMl,
-                rateUsedPaise: entry.rateUsedPaise,
-                status: entry.status,
-              ),
-          ],
-          payments: [
-            for (final payment in ledger.payments)
-              PaymentRecord(
-                date: payment.date,
-                amountPaise: payment.amountPaise,
-              ),
-          ],
+          entries: billingEntriesOf(ledger),
+          payments: paymentRecordsOf(ledger),
         ),
       ),
 );
 
-final vendorRateHistoryProvider = Provider.family<AsyncValue<List<MilkRate>>, int>(
-  (ref, vendorId) =>
-      ref.watch(vendorLedgerProvider(vendorId)).whenData(milkRatesOf),
-);
-
-final entriesForMonthProvider =
-    Provider.family<AsyncValue<List<DailyEntry>>, MonthSelection>((
-      ref,
-      selection,
-    ) {
-      final start = DateTime(selection.year, selection.month);
-      final end = DateTime(selection.year, selection.month + 1);
-      return ref
-          .watch(vendorLedgerProvider(selection.vendorId))
-          .whenData(
-            (ledger) => [
-              for (final entry in ledger.entries)
-                if (!entry.date.isBefore(start) && entry.date.isBefore(end))
-                  entry,
-            ],
-          );
-    });
-
-final entryForDateProvider =
-    Provider.family<AsyncValue<DailyEntry?>, EntryDateSelection>((
-      ref,
-      selection,
-    ) {
-      return ref.watch(vendorLedgerProvider(selection.vendorId)).whenData((
-        ledger,
-      ) {
-        for (final entry in ledger.entries.reversed) {
-          if (isSameDate(entry.date, selection.date)) {
-            return entry;
-          }
-          if (entry.date.isBefore(selection.date)) {
-            break;
-          }
-        }
-        return null;
-      });
-    });
+final vendorRateHistoryProvider =
+    Provider.family<AsyncValue<List<MilkRate>>, int>(
+      (ref, vendorId) =>
+          ref.watch(vendorLedgerProvider(vendorId)).whenData(milkRatesOf),
+    );

@@ -246,9 +246,8 @@ class SectionHeader extends StatelessWidget {
         Expanded(
           child: Text(
             title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         ?trailing,
@@ -560,9 +559,7 @@ class _ExactQuantityDialogState extends State<_ExactQuantityDialog> {
   void _submit() {
     final value = parseLitresToMl(_controller.text);
     if (value == null || value > QuantityStepper.maxQuantityMl) {
-      setState(
-        () => _error = AppLocalizations.of(context)!.invalidQuantity,
-      );
+      setState(() => _error = AppLocalizations.of(context)!.invalidQuantity);
       return;
     }
     Navigator.pop(context, value);
@@ -578,10 +575,7 @@ class _ExactQuantityDialogState extends State<_ExactQuantityDialog> {
         autofocus: true,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
-        decoration: InputDecoration(
-          suffixText: widget.unit,
-          errorText: _error,
-        ),
+        decoration: InputDecoration(suffixText: widget.unit, errorText: _error),
         onSubmitted: (_) => _submit(),
       ),
       actions: [

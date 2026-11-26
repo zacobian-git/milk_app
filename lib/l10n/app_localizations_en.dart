@@ -30,6 +30,23 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tabToday => 'Today';
 
   @override
+  String get goodMorning => 'Good morning';
+
+  @override
+  String get goodAfternoon => 'Good afternoon';
+
+  @override
+  String get goodEvening => 'Good evening';
+
+  @override
+  String get quickActions => 'Quick actions';
+
+  @override
+  String monthProgress(int delivered, int days) {
+    return '$delivered of $days days delivered';
+  }
+
+  @override
   String get tabCalendar => 'Calendar';
 
   @override
