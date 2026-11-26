@@ -110,6 +110,36 @@ void main() {
     expect(storedPayments.single.mode, PaymentMode.upi);
   });
 
+  test('payment history includes every vendor newest first', () async {
+    final firstVendorId = await vendors.addVendor(
+      name: 'A Dairy',
+      milkType: 'cow',
+      defaultQtyMl: 1000,
+    );
+    final secondVendorId = await vendors.addVendor(
+      name: 'B Dairy',
+      milkType: 'buffalo',
+      defaultQtyMl: 1500,
+    );
+    await payments.addPayment(
+      vendorId: firstVendorId,
+      date: DateTime(2025, 6, 10),
+      amountPaise: 3000,
+      mode: PaymentMode.cash,
+    );
+    await payments.addPayment(
+      vendorId: secondVendorId,
+      date: DateTime(2025, 6, 12),
+      amountPaise: 5000,
+      mode: PaymentMode.upi,
+    );
+
+    final history = await payments.watchAllVendorPayments().first;
+
+    expect(history.map((record) => record.vendor.name), ['B Dairy', 'A Dairy']);
+    expect(history.map((record) => record.payment.amountPaise), [5000, 3000]);
+  });
+
   test('deleting a vendor archives it and preserves ledger history', () async {
     final vendorId = await vendors.addVendor(
       name: 'Mohan Dairy',
@@ -141,6 +171,38 @@ void main() {
       hasLength(1),
     );
     expect(await vendors.getRateHistory(vendorId), hasLength(1));
+  });
+
+  test('permanently deleting a vendor removes its ledger history', () async {
+    final vendorId = await vendors.addVendor(
+      name: 'Mohan Dairy',
+      milkType: 'cow',
+      defaultQtyMl: 1000,
+    );
+    await vendors.changeRate(
+      vendorId: vendorId,
+      ratePerLitrePaise: 9000,
+      effectiveFrom: DateTime(2025, 6, 1),
+    );
+    await entries.saveEntry(
+      vendorId: vendorId,
+      date: DateTime(2025, 6, 10),
+      quantityMl: 1000,
+      status: DailyEntryStatus.delivered,
+    );
+    await payments.addPayment(
+      vendorId: vendorId,
+      date: DateTime(2025, 6, 12),
+      amountPaise: 5000,
+      mode: PaymentMode.cash,
+    );
+
+    await vendors.deleteVendor(vendorId);
+
+    expect(await vendors.getVendor(vendorId), isNull);
+    expect(await vendors.getRateHistory(vendorId), isEmpty);
+    expect(await entries.getAllEntries(vendorId), isEmpty);
+    expect(await payments.getAllPayments(vendorId), isEmpty);
   });
 
   test('backup restores vendors, rate history, entries and payments', () async {

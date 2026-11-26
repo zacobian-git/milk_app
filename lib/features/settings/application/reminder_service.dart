@@ -10,30 +10,6 @@ class ReminderService {
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
 
-  static Future<bool> requestPermissionAndSchedule({
-    required int hour,
-    required int minute,
-    required String title,
-    required String body,
-    required String channelName,
-    required String channelDescription,
-  }) async {
-    await _initialize();
-    final granted = await requestPermission();
-    if (!granted) {
-      return false;
-    }
-    await scheduleDaily(
-      hour: hour,
-      minute: minute,
-      title: title,
-      body: body,
-      channelName: channelName,
-      channelDescription: channelDescription,
-    );
-    return true;
-  }
-
   static Future<bool> requestPermission() async {
     await _initialize();
     final android = _plugin

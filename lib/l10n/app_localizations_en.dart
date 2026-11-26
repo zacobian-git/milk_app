@@ -105,6 +105,18 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cancel => 'Cancel';
 
   @override
+  String get yes => 'Yes';
+
+  @override
+  String get no => 'No';
+
+  @override
+  String get exitApp => 'Close app';
+
+  @override
+  String get exitAppQuestion => 'Are you sure you want to close the app?';
+
+  @override
   String get delete => 'Delete';
 
   @override
@@ -123,7 +135,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String deleteVendorQuestion(Object vendorName) {
-    return 'Remove $vendorName from your vendor list? Their milk and payment history will be kept.';
+    return 'Are you sure you want to permanently delete $vendorName? All vendor details and history will be deleted.';
   }
 
   @override
@@ -131,6 +143,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get vendorArchived => 'Vendor archived';
+
+  @override
+  String get vendorDeleted => 'Vendor deleted';
 
   @override
   String get vendorDetails => 'Vendor details';
@@ -308,6 +323,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noPayments => 'No payments recorded yet.';
 
   @override
+  String get paymentHistory => 'Payment history';
+
+  @override
   String get report => 'Monthly bill';
 
   @override
@@ -395,6 +413,37 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get restore => 'Restore from backup';
+
+  @override
+  String get automaticBackup => 'Automatic backup';
+
+  @override
+  String get automaticBackupHint =>
+      'Saved on this phone; Android may delay it. Keeps the latest 7 copies.';
+
+  @override
+  String get automaticBackupFrequency => 'Backup frequency';
+
+  @override
+  String get backupDaily => 'Daily';
+
+  @override
+  String get backupWeekly => 'Weekly';
+
+  @override
+  String get backupMonthly => 'Monthly';
+
+  @override
+  String get automaticBackupTime => 'Backup time';
+
+  @override
+  String get automaticBackups => 'Restore automatic backup';
+
+  @override
+  String get noAutomaticBackups => 'No automatic backups are available yet.';
+
+  @override
+  String get selectAutomaticBackup => 'Choose an automatic backup';
 
   @override
   String get backupCreated => 'Backup ready to share';
@@ -546,7 +595,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get vendorRestored => 'Vendor restored';
 
   @override
-  String get deleteRateQuestion => 'Delete this rate? Entries already saved keep their rate.';
+  String get deleteRateQuestion =>
+      'Delete this rate? Entries already saved keep their rate.';
 
   @override
   String get cannotDeleteOnlyRate => 'At least one rate is needed.';
@@ -591,7 +641,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get markRangeSkipped => 'No milk on unmarked days (holiday)';
 
   @override
-  String get bulkSkipQuestion => 'Mark all unmarked days in the selected range as no delivery?';
+  String get bulkSkipQuestion =>
+      'Mark all unmarked days in the selected range as no delivery?';
 
   @override
   String billGeneratedOn(Object date) {

@@ -131,6 +131,10 @@ class LedgerDao extends DatabaseAccessor<MilkDatabase> with _$LedgerDaoMixin {
     );
   }
 
+  Future<void> deleteVendor(int id) async {
+    await (delete(vendors)..where((vendor) => vendor.id.equals(id))).go();
+  }
+
   Future<List<RateHistory>> getRateHistory(int vendorId) =>
       (select(rateHistories)
             ..where((rate) => rate.vendorId.equals(vendorId))
@@ -234,6 +238,24 @@ class LedgerDao extends DatabaseAccessor<MilkDatabase> with _$LedgerDaoMixin {
             ..where((payment) => payment.vendorId.equals(vendorId))
             ..orderBy([(payment) => OrderingTerm.asc(payment.date)]))
           .get();
+
+  Stream<List<({Payment payment, Vendor vendor})>> watchAllVendorPayments() =>
+      (select(payments).join([
+            innerJoin(vendors, vendors.id.equalsExp(payments.vendorId)),
+          ])..orderBy([
+            OrderingTerm.desc(payments.date),
+            OrderingTerm.desc(payments.id),
+          ]))
+          .watch()
+          .map(
+            (rows) => [
+              for (final row in rows)
+                (
+                  payment: row.readTable(payments),
+                  vendor: row.readTable(vendors),
+                ),
+            ],
+          );
 
   Future<int> insertPayment(PaymentsCompanion payment) =>
       into(payments).insert(payment);

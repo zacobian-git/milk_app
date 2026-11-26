@@ -30,9 +30,13 @@
 
 - Pick a light, dark or system theme and switch the app language in Settings.
 - Enable the daily reminder and allow Android notifications when prompted.
+- Turn on **Automatic backup** to save copies inside the app on this phone.
+  Choose daily, weekly or monthly and a preferred time. Android may defer the
+  run; the app keeps the latest seven copies.
 - **Backup** shares a JSON copy of the complete ledger. Save it somewhere safe.
 - **Restore** replaces the ledger on this phone with the selected backup.
   Confirm the replacement only when you intend to overwrite the current data.
+- **Restore automatic backup** lets you choose one of the retained local copies.
 - App lock uses the device's biometric or screen-lock authentication when
   supported.
 

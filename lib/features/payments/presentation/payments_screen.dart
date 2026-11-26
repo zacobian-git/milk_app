@@ -4,7 +4,6 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:milk_app/core/providers/ledger_providers.dart';
 import 'package:milk_app/core/utils/formatters.dart';
@@ -28,7 +27,10 @@ class PaymentsScreen extends ConsumerWidget {
     final vendorList = vendors.value ?? const <Vendor>[];
     final selectedVendor = vendorList.isEmpty
         ? null
-        : resolveSelectedVendor(vendorList, ref.watch(selectedVendorIdProvider));
+        : resolveSelectedVendor(
+            vendorList,
+            ref.watch(selectedVendorIdProvider),
+          );
 
     return Scaffold(
       appBar: AppBar(title: Text(strings.tabPayments)),
@@ -48,11 +50,11 @@ class PaymentsScreen extends ConsumerWidget {
             );
           }
           final vendor = selectedVendor;
-          final payments = ref.watch(paymentsProvider(vendor.id));
+          final payments = ref.watch(allVendorPaymentsProvider);
           return CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
-                child: VendorSelector(vendors: items, selected: vendor),
+                child: _VendorDropdown(vendors: items, selected: vendor),
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -68,6 +70,12 @@ class PaymentsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(
+                  child: SectionHeader(strings.paymentHistory),
+                ),
+              ),
               ...payments.when(
                 loading: () => <Widget>[
                   const SliverFillRemaining(
@@ -79,8 +87,7 @@ class PaymentsScreen extends ConsumerWidget {
                   SliverFillRemaining(
                     hasScrollBody: false,
                     child: ErrorState(
-                      onRetry: () =>
-                          ref.invalidate(vendorLedgerProvider(vendor.id)),
+                      onRetry: () => ref.invalidate(allVendorPaymentsProvider),
                     ),
                   ),
                 ],
@@ -115,55 +122,31 @@ class PaymentsScreen extends ConsumerWidget {
   List<Widget> _paymentSlivers(
     BuildContext context,
     WidgetRef ref,
-    List<Payment> payments,
+    List<({Payment payment, Vendor vendor})> payments,
   ) {
-    final strings = AppLocalizations.of(context)!;
-    final locale = strings.localeName;
-    final groups = <DateTime, List<Payment>>{};
-    for (final payment in payments) {
-      groups.putIfAbsent(monthStart(payment.date), () => []).add(payment);
-    }
     return [
-      for (final group in groups.entries) ...[
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverToBoxAdapter(
-            child: SectionHeader(
-              DateFormat.yMMMM(locale).format(group.key),
-              trailing: Text(
-                formatMoney(
-                  group.value.fold<int>(0, (sum, p) => sum + p.amountPaise),
-                  locale,
-                ),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: SliverList.separated(
+          itemCount: payments.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final item = payments[index];
+            return _PaymentTile(
+              key: ValueKey(item.payment.id),
+              payment: item.payment,
+              vendor: item.vendor,
+              onTap: () => showPaymentEditor(
+                context,
+                ref,
+                vendorId: item.payment.vendorId,
+                payment: item.payment,
               ),
-            ),
-          ),
+              onDelete: () => _deletePayment(context, ref, item.payment),
+            );
+          },
         ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          sliver: SliverList.separated(
-            itemCount: group.value.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final payment = group.value[index];
-              return _PaymentTile(
-                key: ValueKey(payment.id),
-                payment: payment,
-                onTap: () => showPaymentEditor(
-                  context,
-                  ref,
-                  vendorId: payment.vendorId,
-                  payment: payment,
-                ),
-                onDelete: () => _deletePayment(context, ref, payment),
-              );
-            },
-          ),
-        ),
-      ],
+      ),
     ];
   }
 
@@ -202,6 +185,49 @@ class PaymentsScreen extends ConsumerWidget {
   }
 }
 
+class _VendorDropdown extends ConsumerWidget {
+  const _VendorDropdown({required this.vendors, required this.selected});
+
+  final List<Vendor> vendors;
+  final Vendor selected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = AppLocalizations.of(context)!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: strings.selectVendor,
+          border: const OutlineInputBorder(),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<int>(
+            value: selected.id,
+            isExpanded: true,
+            items: [
+              for (final vendor in vendors)
+                DropdownMenuItem(
+                  value: vendor.id,
+                  child: Text(
+                    vendor.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (vendorId) {
+              if (vendorId != null) {
+                ref.read(selectedVendorIdProvider.notifier).select(vendorId);
+              }
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Opens the payment editor. The balance shown in quick actions is read from
 /// the already-cached ledger, so this opens instantly.
 Future<void> showPaymentEditor(
@@ -217,11 +243,13 @@ Future<void> showPaymentEditor(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (context) => PaymentEditorSheet(
-      vendorId: vendorId,
-      existing: payment,
-      fullBalancePaise: balance,
-      initialAmountPaise: initialAmountPaise,
+    builder: (context) => Material(
+      child: PaymentEditorSheet(
+        vendorId: vendorId,
+        existing: payment,
+        fullBalancePaise: balance,
+        initialAmountPaise: initialAmountPaise,
+      ),
     ),
   );
   if (saved == true && context.mounted) {
@@ -290,9 +318,11 @@ class _BalanceHeader extends ConsumerWidget {
                   ),
                 ),
                 if (report != null)
-                  StatTile(
-                    label: strings.paymentsThisMonth,
-                    value: formatMoney(report.summary.paidPaise, locale),
+                  Expanded(
+                    child: StatTile(
+                      label: strings.paymentsThisMonth,
+                      value: formatMoney(report.summary.paidPaise, locale),
+                    ),
                   ),
               ],
             ),
@@ -315,11 +345,13 @@ class _PaymentTile extends StatelessWidget {
   const _PaymentTile({
     super.key,
     required this.payment,
+    required this.vendor,
     required this.onTap,
     required this.onDelete,
   });
 
   final Payment payment;
+  final Vendor vendor;
   final VoidCallback onTap;
   final Future<void> Function() onDelete;
 
@@ -330,6 +362,7 @@ class _PaymentTile extends StatelessWidget {
     final colors = theme.colorScheme;
     final locale = strings.localeName;
     final details = [
+      vendor.name,
       formatDate(payment.date, locale),
       paymentModeLabel(strings, payment.mode),
       if (payment.note?.isNotEmpty ?? false) payment.note!,
@@ -408,6 +441,7 @@ class PaymentEditorSheet extends ConsumerStatefulWidget {
 
 class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
   final _formKey = GlobalKey<FormState>();
+  late int _selectedVendorId = widget.existing?.vendorId ?? widget.vendorId;
   late final TextEditingController _amountController = TextEditingController(
     text: switch ((widget.existing, widget.initialAmountPaise)) {
       (final Payment payment, _) => _amountInput(payment.amountPaise),
@@ -443,6 +477,10 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
     final strings = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final locale = strings.localeName;
+    final vendors = ref.watch(activeVendorsProvider).value ?? const <Vendor>[];
+    final selectedBalance =
+        ref.watch(vendorBalanceProvider(_selectedVendorId)).value ??
+        (_selectedVendorId == widget.vendorId ? widget.fullBalancePaise : 0);
     return Padding(
       padding: EdgeInsets.fromLTRB(
         20,
@@ -464,9 +502,43 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
                 ),
               ),
               const SizedBox(height: 16),
+              if (widget.existing == null) ...[
+                InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: strings.selectVendor,
+                    border: const OutlineInputBorder(),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      value: _selectedVendorId,
+                      isExpanded: true,
+                      items: [
+                        for (final vendor in vendors)
+                          DropdownMenuItem(
+                            value: vendor.id,
+                            child: Text(
+                              vendor.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: _saving
+                          ? null
+                          : (vendorId) {
+                              if (vendorId != null) {
+                                setState(() => _selectedVendorId = vendorId);
+                              }
+                            },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               TextFormField(
                 controller: _amountController,
-                autofocus: widget.existing == null &&
+                autofocus:
+                    widget.existing == null &&
                     widget.initialAmountPaise == null,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -494,14 +566,14 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    if (widget.fullBalancePaise > 0)
+                    if (selectedBalance > 0)
                       ActionChip(
                         avatar: const Icon(Icons.done_all_rounded, size: 18),
                         label: Text(
                           '${strings.payFullBalance} · '
-                          '${formatMoney(widget.fullBalancePaise, locale)}',
+                          '${formatMoney(selectedBalance, locale)}',
                         ),
-                        onPressed: () => _setAmount(widget.fullBalancePaise),
+                        onPressed: () => _setAmount(selectedBalance),
                       ),
                     for (final amount in [50000, 100000, 200000])
                       ActionChip(
@@ -515,7 +587,7 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
                         ),
                         onPressed: () => _setAmount(
                           paymentAmountForAdditionalAdvancePaise(
-                            balancePaise: widget.fullBalancePaise,
+                            balancePaise: selectedBalance,
                             additionalAdvancePaise: amount,
                           ),
                         ),
@@ -614,7 +686,7 @@ class _PaymentEditorSheetState extends ConsumerState<PaymentEditorSheet> {
       final existing = widget.existing;
       if (existing == null) {
         await repository.addPayment(
-          vendorId: widget.vendorId,
+          vendorId: _selectedVendorId,
           date: _date,
           amountPaise: amount,
           mode: _mode,

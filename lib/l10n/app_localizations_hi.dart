@@ -105,6 +105,18 @@ class AppLocalizationsHi extends AppLocalizations {
   String get cancel => 'रद्द करें';
 
   @override
+  String get yes => 'हाँ';
+
+  @override
+  String get no => 'नहीं';
+
+  @override
+  String get exitApp => 'ऐप बंद करें';
+
+  @override
+  String get exitAppQuestion => 'क्या आप वाकई ऐप बंद करना चाहते हैं?';
+
+  @override
   String get delete => 'हटाएँ';
 
   @override
@@ -123,7 +135,7 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String deleteVendorQuestion(Object vendorName) {
-    return '$vendorName को दूधवालों की सूची से हटाएँ? दूध और भुगतान का पुराना हिसाब सुरक्षित रहेगा।';
+    return 'क्या आप वाकई $vendorName को हमेशा के लिए हटाना चाहते हैं? दूधवाले की सारी जानकारी और पुराना हिसाब मिट जाएगा।';
   }
 
   @override
@@ -131,6 +143,9 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get vendorArchived => 'दूधवाला सूची से हटाया गया';
+
+  @override
+  String get vendorDeleted => 'दूधवाला हमेशा के लिए हटा दिया गया';
 
   @override
   String get vendorDetails => 'दूधवाले की जानकारी';
@@ -308,6 +323,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get noPayments => 'अभी कोई भुगतान दर्ज नहीं है।';
 
   @override
+  String get paymentHistory => 'भुगतान का इतिहास';
+
+  @override
   String get report => 'महीने का बिल';
 
   @override
@@ -394,6 +412,37 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get restore => 'बैकअप से हिसाब वापस लाएँ';
+
+  @override
+  String get automaticBackup => 'अपने आप बैकअप लें';
+
+  @override
+  String get automaticBackupHint =>
+      'बैकअप इसी फ़ोन में सुरक्षित रहेगा। Android समय बदल सकता है; पिछले ७ बैकअप रखे जाएँगे।';
+
+  @override
+  String get automaticBackupFrequency => 'बैकअप कितनी बार लें';
+
+  @override
+  String get backupDaily => 'रोज़';
+
+  @override
+  String get backupWeekly => 'हर हफ़्ते';
+
+  @override
+  String get backupMonthly => 'हर महीने';
+
+  @override
+  String get automaticBackupTime => 'बैकअप का समय';
+
+  @override
+  String get automaticBackups => 'ऑटोमैटिक बैकअप वापस लाएँ';
+
+  @override
+  String get noAutomaticBackups => 'अभी कोई ऑटोमैटिक बैकअप उपलब्ध नहीं है।';
+
+  @override
+  String get selectAutomaticBackup => 'ऑटोमैटिक बैकअप चुनें';
 
   @override
   String get backupCreated => 'बैकअप साझा करने के लिए तैयार है';
@@ -544,7 +593,8 @@ class AppLocalizationsHi extends AppLocalizations {
   String get vendorRestored => 'दूधवाला वापस जोड़ा गया';
 
   @override
-  String get deleteRateQuestion => 'यह रेट हटाएँ? पहले से लिखी एंट्री का रेट नहीं बदलेगा।';
+  String get deleteRateQuestion =>
+      'यह रेट हटाएँ? पहले से लिखी एंट्री का रेट नहीं बदलेगा।';
 
   @override
   String get cannotDeleteOnlyRate => 'कम से कम एक रेट ज़रूरी है।';
@@ -583,13 +633,16 @@ class AppLocalizationsHi extends AppLocalizations {
   String get markRangeTitle => 'कई दिन एक साथ भरें';
 
   @override
-  String get markRangeDelivered => 'जिन दिनों का हिसाब नहीं लिखा, उनमें दूध आया';
+  String get markRangeDelivered =>
+      'जिन दिनों का हिसाब नहीं लिखा, उनमें दूध आया';
 
   @override
-  String get markRangeSkipped => 'जिन दिनों का हिसाब नहीं लिखा, उनमें दूध नहीं आया (छुट्टी)';
+  String get markRangeSkipped =>
+      'जिन दिनों का हिसाब नहीं लिखा, उनमें दूध नहीं आया (छुट्टी)';
 
   @override
-  String get bulkSkipQuestion => 'चुने गए दिनों में जिन दिनों का हिसाब नहीं लिखा, उन्हें \'दूध नहीं आया\' लिखें?';
+  String get bulkSkipQuestion =>
+      'चुने गए दिनों में जिन दिनों का हिसाब नहीं लिखा, उन्हें \'दूध नहीं आया\' लिखें?';
 
   @override
   String billGeneratedOn(Object date) {

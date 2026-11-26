@@ -31,6 +31,10 @@
   "notes": "Notes",
   "save": "Save",
   "cancel": "Cancel",
+  "yes": "Yes",
+  "no": "No",
+  "exitApp": "Close app",
+  "exitAppQuestion": "Are you sure you want to close the app?",
   "delete": "Delete",
   "edit": "Edit",
   "archiveVendor": "Archive vendor",
@@ -41,7 +45,7 @@
     }
   },
   "deleteVendor": "Delete vendor",
-  "deleteVendorQuestion": "Remove {vendorName} from your vendor list? Their milk and payment history will be kept.",
+  "deleteVendorQuestion": "Are you sure you want to permanently delete {vendorName}? All vendor details and history will be deleted.",
   "@deleteVendorQuestion": {
     "placeholders": {
       "vendorName": {}
@@ -49,6 +53,7 @@
   },
   "vendorSaved": "Vendor saved",
   "vendorArchived": "Vendor archived",
+  "vendorDeleted": "Vendor deleted",
   "vendorDetails": "Vendor details",
   "rateHistory": "Rate history",
   "changeRate": "Change rate",
@@ -117,6 +122,7 @@
     }
   },
   "noPayments": "No payments recorded yet.",
+  "paymentHistory": "Payment history",
   "report": "Monthly bill",
   "selectVendor": "Choose a vendor",
   "selectMonth": "Choose a month",
@@ -146,6 +152,16 @@
   "notificationPermission": "Allow notifications in Android settings to receive reminders.",
   "backup": "Back up data",
   "restore": "Restore from backup",
+  "automaticBackup": "Automatic backup",
+  "automaticBackupHint": "Saved on this phone; Android may delay it. Keeps the latest 7 copies.",
+  "automaticBackupFrequency": "Backup frequency",
+  "backupDaily": "Daily",
+  "backupWeekly": "Weekly",
+  "backupMonthly": "Monthly",
+  "automaticBackupTime": "Backup time",
+  "automaticBackups": "Restore automatic backup",
+  "noAutomaticBackups": "No automatic backups are available yet.",
+  "selectAutomaticBackup": "Choose an automatic backup",
   "backupCreated": "Backup ready to share",
   "restoreSuccess": "Backup restored",
   "restoreConfirm": "Restoring replaces the current ledger. Continue?",

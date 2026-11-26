@@ -81,6 +81,8 @@ class VendorRepository {
 
   Future<void> archiveVendor(int id) => _dao.archiveVendor(id);
 
+  Future<void> deleteVendor(int id) => _dao.deleteVendor(id);
+
   Stream<List<Vendor>> watchArchivedVendors() => _dao.watchArchivedVendors();
 
   Future<void> restoreVendor(int id) => _dao.restoreVendor(id);

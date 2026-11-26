@@ -31,6 +31,10 @@
   "notes": "नोट",
   "save": "सेव करें",
   "cancel": "रद्द करें",
+  "yes": "हाँ",
+  "no": "नहीं",
+  "exitApp": "ऐप बंद करें",
+  "exitAppQuestion": "क्या आप वाकई ऐप बंद करना चाहते हैं?",
   "delete": "हटाएँ",
   "edit": "बदलें",
   "archiveVendor": "दूधवाले को सूची से हटाएँ",
@@ -41,7 +45,7 @@
     }
   },
   "deleteVendor": "दूधवाले को हटाएँ",
-  "deleteVendorQuestion": "{vendorName} को दूधवालों की सूची से हटाएँ? दूध और भुगतान का पुराना हिसाब सुरक्षित रहेगा।",
+  "deleteVendorQuestion": "क्या आप वाकई {vendorName} को हमेशा के लिए हटाना चाहते हैं? दूधवाले की सारी जानकारी और पुराना हिसाब मिट जाएगा।",
   "@deleteVendorQuestion": {
     "placeholders": {
       "vendorName": {}
@@ -49,6 +53,7 @@
   },
   "vendorSaved": "जानकारी सेव हो गई",
   "vendorArchived": "दूधवाला सूची से हटाया गया",
+  "vendorDeleted": "दूधवाला हमेशा के लिए हटा दिया गया",
   "vendorDetails": "दूधवाले की जानकारी",
   "rateHistory": "भाव का इतिहास",
   "changeRate": "भाव बदलें",
@@ -117,6 +122,7 @@
     }
   },
   "noPayments": "अभी कोई भुगतान दर्ज नहीं है।",
+  "paymentHistory": "भुगतान का इतिहास",
   "report": "महीने का बिल",
   "selectVendor": "दूधवाला चुनें",
   "selectMonth": "महीना चुनें",
@@ -146,6 +152,16 @@
   "notificationPermission": "याद दिलाने के लिए Android सेटिंग में सूचनाएँ चालू करें।",
   "backup": "हिसाब का बैकअप लें",
   "restore": "बैकअप से हिसाब वापस लाएँ",
+  "automaticBackup": "अपने आप बैकअप लें",
+  "automaticBackupHint": "बैकअप इसी फ़ोन में सुरक्षित रहेगा। Android समय बदल सकता है; पिछले ७ बैकअप रखे जाएँगे।",
+  "automaticBackupFrequency": "बैकअप कितनी बार लें",
+  "backupDaily": "रोज़",
+  "backupWeekly": "हर हफ़्ते",
+  "backupMonthly": "हर महीने",
+  "automaticBackupTime": "बैकअप का समय",
+  "automaticBackups": "ऑटोमैटिक बैकअप वापस लाएँ",
+  "noAutomaticBackups": "अभी कोई ऑटोमैटिक बैकअप उपलब्ध नहीं है।",
+  "selectAutomaticBackup": "ऑटोमैटिक बैकअप चुनें",
   "backupCreated": "बैकअप साझा करने के लिए तैयार है",
   "restoreSuccess": "बैकअप वापस आ गया",
   "restoreConfirm": "बैकअप लाने पर अभी का हिसाब बदल जाएगा। जारी रखें?",

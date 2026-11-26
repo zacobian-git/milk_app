@@ -12,7 +12,7 @@ import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-enum _VendorAction { edit, rates, message, remove }
+enum _VendorAction { edit, rates, message, delete }
 
 String milkTypeLabel(AppLocalizations strings, String milkType) =>
     switch (milkType) {
@@ -29,7 +29,6 @@ class VendorListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = AppLocalizations.of(context)!;
     final vendors = ref.watch(activeVendorsProvider);
-    final archived = ref.watch(archivedVendorsProvider).value ?? const [];
 
     return Scaffold(
       appBar: AppBar(title: Text(strings.tabVendors)),
@@ -37,7 +36,7 @@ class VendorListScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
             ErrorState(onRetry: () => ref.invalidate(activeVendorsProvider)),
-        data: (items) => items.isEmpty && archived.isEmpty
+        data: (items) => items.isEmpty
             ? EmptyState(
                 icon: Icons.storefront_rounded,
                 title: strings.noVendors,
@@ -53,32 +52,6 @@ class VendorListScreen extends ConsumerWidget {
                     _VendorCard(key: ValueKey(vendor.id), vendor: vendor),
                     const SizedBox(height: 12),
                   ],
-                  if (archived.isNotEmpty)
-                    Card(
-                      child: ExpansionTile(
-                        shape: const Border(),
-                        collapsedShape: const Border(),
-                        leading: const Icon(Icons.inventory_2_outlined),
-                        title: Text(strings.archivedVendors),
-                        trailing: Badge(label: Text('${archived.length}')),
-                        children: [
-                          for (final vendor in archived)
-                            ListTile(
-                              leading: VendorAvatar(
-                                name: vendor.name,
-                                radius: 18,
-                              ),
-                              title: Text(vendor.name),
-                              trailing: TextButton.icon(
-                                onPressed: () =>
-                                    _restore(context, ref, vendor),
-                                icon: const Icon(Icons.restore_rounded),
-                                label: Text(strings.restoreVendor),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
       ),
@@ -88,25 +61,6 @@ class VendorListScreen extends ConsumerWidget {
         label: Text(strings.addVendor),
       ),
     );
-  }
-
-  Future<void> _restore(
-    BuildContext context,
-    WidgetRef ref,
-    Vendor vendor,
-  ) async {
-    final strings = AppLocalizations.of(context)!;
-    try {
-      await ref.read(vendorRepositoryProvider).restoreVendor(vendor.id);
-      if (context.mounted) {
-        showAppSnackBar(context, strings.vendorRestored);
-      }
-    } catch (error, stackTrace) {
-      reportUiError(error, stackTrace, 'restore vendor');
-      if (context.mounted) {
-        showAppSnackBar(context, strings.errorOccurred);
-      }
-    }
   }
 }
 
@@ -200,7 +154,7 @@ class _VendorCard extends ConsumerWidget {
                           ),
                         ),
                       PopupMenuItem(
-                        value: _VendorAction.remove,
+                        value: _VendorAction.delete,
                         child: ListTile(
                           leading: Icon(
                             Icons.delete_outline,
@@ -279,30 +233,39 @@ class _VendorCard extends ConsumerWidget {
             mode: LaunchMode.externalApplication,
           );
         }
-      case _VendorAction.remove:
-        final confirmed = await showConfirmDialog(
-          context,
-          title: strings.deleteVendor,
-          message: strings.deleteVendorQuestion(vendor.name),
-          confirmLabel: strings.deleteVendor,
-          destructive: true,
+      case _VendorAction.delete:
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(strings.deleteVendor),
+            content: Text(strings.deleteVendorQuestion(vendor.name)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(strings.no),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                ),
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(strings.yes),
+              ),
+            ],
+          ),
         );
-        if (!confirmed || !context.mounted) {
+        if (confirmed != true || !context.mounted) {
           return;
         }
         final repository = ref.read(vendorRepositoryProvider);
         try {
-          await repository.archiveVendor(vendor.id);
+          await repository.deleteVendor(vendor.id);
           if (context.mounted) {
-            showAppSnackBar(
-              context,
-              strings.vendorArchived,
-              actionLabel: strings.undo,
-              onAction: () => repository.restoreVendor(vendor.id),
-            );
+            showAppSnackBar(context, strings.vendorDeleted);
           }
         } catch (error, stackTrace) {
-          reportUiError(error, stackTrace, 'archive vendor');
+          reportUiError(error, stackTrace, 'delete vendor');
           if (context.mounted) {
             showAppSnackBar(context, strings.errorOccurred);
           }

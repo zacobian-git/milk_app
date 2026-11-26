@@ -7,13 +7,15 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:milk_app/core/router/app_router.dart';
 import 'package:milk_app/core/theme/app_theme.dart';
+import 'package:milk_app/core/widgets/app_startup_gate.dart';
 import 'package:milk_app/features/settings/application/app_settings.dart';
 import 'package:milk_app/features/settings/application/app_settings_provider.dart';
-import 'package:milk_app/features/settings/presentation/app_lock_gate.dart';
+import 'package:milk_app/features/settings/application/auto_backup_scheduler.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AutoBackupScheduler.initialize();
   await initializeDateFormatting('hi');
   await initializeDateFormatting('en');
   runApp(const ProviderScope(child: DoodhHisaabApp()));
@@ -42,7 +44,7 @@ class DoodhHisaabApp extends ConsumerWidget {
       themeMode: settings.themeMode,
       routerConfig: appRouter,
       builder: (context, child) =>
-          AppLockGate(child: child ?? const SizedBox.shrink()),
+          AppStartupGate(child: child ?? const SizedBox.shrink()),
     );
   }
 }

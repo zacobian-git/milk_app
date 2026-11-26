@@ -284,6 +284,30 @@ abstract class AppLocalizations {
   /// **'Cancel'**
   String get cancel;
 
+  /// No description provided for @yes.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes'**
+  String get yes;
+
+  /// No description provided for @no.
+  ///
+  /// In en, this message translates to:
+  /// **'No'**
+  String get no;
+
+  /// No description provided for @exitApp.
+  ///
+  /// In en, this message translates to:
+  /// **'Close app'**
+  String get exitApp;
+
+  /// No description provided for @exitAppQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to close the app?'**
+  String get exitAppQuestion;
+
   /// No description provided for @delete.
   ///
   /// In en, this message translates to:
@@ -317,7 +341,7 @@ abstract class AppLocalizations {
   /// No description provided for @deleteVendorQuestion.
   ///
   /// In en, this message translates to:
-  /// **'Remove {vendorName} from your vendor list? Their milk and payment history will be kept.'**
+  /// **'Are you sure you want to permanently delete {vendorName}? All vendor details and history will be deleted.'**
   String deleteVendorQuestion(Object vendorName);
 
   /// No description provided for @vendorSaved.
@@ -331,6 +355,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Vendor archived'**
   String get vendorArchived;
+
+  /// No description provided for @vendorDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Vendor deleted'**
+  String get vendorDeleted;
 
   /// No description provided for @vendorDetails.
   ///
@@ -668,6 +698,12 @@ abstract class AppLocalizations {
   /// **'No payments recorded yet.'**
   String get noPayments;
 
+  /// No description provided for @paymentHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Payment history'**
+  String get paymentHistory;
+
   /// No description provided for @report.
   ///
   /// In en, this message translates to:
@@ -841,6 +877,66 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Restore from backup'**
   String get restore;
+
+  /// No description provided for @automaticBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic backup'**
+  String get automaticBackup;
+
+  /// No description provided for @automaticBackupHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this phone; Android may delay it. Keeps the latest 7 copies.'**
+  String get automaticBackupHint;
+
+  /// No description provided for @automaticBackupFrequency.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup frequency'**
+  String get automaticBackupFrequency;
+
+  /// No description provided for @backupDaily.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily'**
+  String get backupDaily;
+
+  /// No description provided for @backupWeekly.
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly'**
+  String get backupWeekly;
+
+  /// No description provided for @backupMonthly.
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly'**
+  String get backupMonthly;
+
+  /// No description provided for @automaticBackupTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup time'**
+  String get automaticBackupTime;
+
+  /// No description provided for @automaticBackups.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore automatic backup'**
+  String get automaticBackups;
+
+  /// No description provided for @noAutomaticBackups.
+  ///
+  /// In en, this message translates to:
+  /// **'No automatic backups are available yet.'**
+  String get noAutomaticBackups;
+
+  /// No description provided for @selectAutomaticBackup.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an automatic backup'**
+  String get selectAutomaticBackup;
 
   /// No description provided for @backupCreated.
   ///
@@ -1079,7 +1175,7 @@ abstract class AppLocalizations {
   /// No description provided for @editTodayEntry.
   ///
   /// In en, this message translates to:
-  /// **'Edit today's entry'**
+  /// **'Edit today\'s entry'**
   String get editTodayEntry;
 
   /// No description provided for @date.

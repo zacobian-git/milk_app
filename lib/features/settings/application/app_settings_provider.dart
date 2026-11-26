@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:milk_app/features/settings/application/app_settings.dart';
+import 'package:milk_app/features/settings/application/automatic_backup_settings.dart';
 
 final appSettingsProvider =
     AsyncNotifierProvider<AppSettingsController, AppSettings>(
@@ -34,6 +35,15 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
       paymentReminderDay: preferences.getInt(_paymentReminderDayKey) ?? 5,
       appLockEnabled: preferences.getBool(_appLockKey) ?? false,
       quantityStepMl: _validStep(preferences.getInt(_quantityStepKey)),
+      automaticBackupEnabled:
+          preferences.getBool(AutomaticBackupPreferences.enabledKey) ?? false,
+      automaticBackupFrequency: _backupFrequencyFromName(
+        preferences.getString(AutomaticBackupPreferences.frequencyKey),
+      ),
+      automaticBackupHour:
+          preferences.getInt(AutomaticBackupPreferences.hourKey) ?? 20,
+      automaticBackupMinute:
+          preferences.getInt(AutomaticBackupPreferences.minuteKey) ?? 0,
     );
   }
 
@@ -66,8 +76,21 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
     (settings) => settings.copyWith(quantityStepMl: _validStep(stepMl)),
   );
 
-  int _validStep(int? stepMl) =>
-      quantitySteps.contains(stepMl) ? stepMl! : 250;
+  Future<void> setAutomaticBackup({
+    required bool enabled,
+    AutomaticBackupFrequency? frequency,
+    int? hour,
+    int? minute,
+  }) => _update(
+    (settings) => settings.copyWith(
+      automaticBackupEnabled: enabled,
+      automaticBackupFrequency: frequency,
+      automaticBackupHour: hour,
+      automaticBackupMinute: minute,
+    ),
+  );
+
+  int _validStep(int? stepMl) => quantitySteps.contains(stepMl) ? stepMl! : 250;
 
   Future<void> _update(AppSettings Function(AppSettings) change) async {
     final previous = state.requireValue;
@@ -88,6 +111,22 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
         preferences.setInt(_paymentReminderDayKey, updated.paymentReminderDay),
         preferences.setBool(_appLockKey, updated.appLockEnabled),
         preferences.setInt(_quantityStepKey, updated.quantityStepMl),
+        preferences.setBool(
+          AutomaticBackupPreferences.enabledKey,
+          updated.automaticBackupEnabled,
+        ),
+        preferences.setString(
+          AutomaticBackupPreferences.frequencyKey,
+          updated.automaticBackupFrequency.name,
+        ),
+        preferences.setInt(
+          AutomaticBackupPreferences.hourKey,
+          updated.automaticBackupHour,
+        ),
+        preferences.setInt(
+          AutomaticBackupPreferences.minuteKey,
+          updated.automaticBackupMinute,
+        ),
       ]);
     } catch (error, stackTrace) {
       state = AsyncData(previous);
@@ -100,4 +139,10 @@ class AppSettingsController extends AsyncNotifier<AppSettings> {
     'dark' => ThemeMode.dark,
     _ => ThemeMode.system,
   };
+
+  AutomaticBackupFrequency _backupFrequencyFromName(String? name) =>
+      AutomaticBackupFrequency.values.firstWhere(
+        (frequency) => frequency.name == name,
+        orElse: () => AutomaticBackupFrequency.daily,
+      );
 }

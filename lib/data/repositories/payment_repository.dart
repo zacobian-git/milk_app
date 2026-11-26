@@ -14,6 +14,9 @@ class PaymentRepository {
   Future<List<Payment>> getAllPayments(int vendorId) =>
       _dao.getAllPayments(vendorId);
 
+  Stream<List<({Payment payment, Vendor vendor})>> watchAllVendorPayments() =>
+      _dao.watchAllVendorPayments();
+
   Future<int> addPayment({
     required int vendorId,
     required DateTime date,

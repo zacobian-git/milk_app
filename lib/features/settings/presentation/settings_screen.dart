@@ -1,9 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:milk_app/features/settings/application/app_settings.dart';
 import 'package:milk_app/features/settings/application/app_settings_provider.dart';
+import 'package:milk_app/features/settings/application/auto_backup_scheduler.dart';
+import 'package:milk_app/features/settings/application/automatic_backup_settings.dart';
 import 'package:milk_app/features/settings/application/reminder_service.dart';
 import 'package:milk_app/features/settings/application/reminder_actions.dart';
 import 'package:milk_app/features/settings/data/backup_service.dart';
@@ -197,6 +202,67 @@ class _SettingsList extends ConsumerWidget {
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => _restore(context, ref),
             ),
+            SwitchListTile(
+              secondary: const Icon(Icons.schedule_send_outlined),
+              title: Text(strings.automaticBackup),
+              subtitle: Text(strings.automaticBackupHint),
+              value: settings.automaticBackupEnabled,
+              onChanged: (enabled) =>
+                  _setAutomaticBackup(context, ref, settings, enabled),
+            ),
+            if (settings.automaticBackupEnabled) ...[
+              ListTile(
+                leading: const Icon(Icons.repeat_rounded),
+                title: Text(strings.automaticBackupFrequency),
+                trailing: DropdownButton<AutomaticBackupFrequency>(
+                  value: settings.automaticBackupFrequency,
+                  underline: const SizedBox.shrink(),
+                  borderRadius: BorderRadius.circular(16),
+                  items: [
+                    DropdownMenuItem(
+                      value: AutomaticBackupFrequency.daily,
+                      child: Text(strings.backupDaily),
+                    ),
+                    DropdownMenuItem(
+                      value: AutomaticBackupFrequency.weekly,
+                      child: Text(strings.backupWeekly),
+                    ),
+                    DropdownMenuItem(
+                      value: AutomaticBackupFrequency.monthly,
+                      child: Text(strings.backupMonthly),
+                    ),
+                  ],
+                  onChanged: (frequency) {
+                    if (frequency != null) {
+                      _setAutomaticBackupFrequency(
+                        context,
+                        ref,
+                        settings,
+                        frequency,
+                      );
+                    }
+                  },
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.access_time_rounded),
+                title: Text(strings.automaticBackupTime),
+                trailing: Text(
+                  TimeOfDay(
+                    hour: settings.automaticBackupHour,
+                    minute: settings.automaticBackupMinute,
+                  ).format(context),
+                  style: theme.textTheme.titleSmall,
+                ),
+                onTap: () => _chooseAutomaticBackupTime(context, ref, settings),
+              ),
+            ],
+            ListTile(
+              leading: const Icon(Icons.folder_open_outlined),
+              title: Text(strings.automaticBackups),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _restoreAutomaticBackup(context, ref),
+            ),
           ],
         ),
         _Section(
@@ -278,6 +344,91 @@ class _SettingsList extends ConsumerWidget {
     }
   }
 
+  Future<void> _restoreAutomaticBackup(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final strings = AppLocalizations.of(context)!;
+    final service = BackupService(ref.read(milkDatabaseProvider));
+    try {
+      final backups = await service.automaticBackups();
+      if (!context.mounted) {
+        return;
+      }
+      if (backups.isEmpty) {
+        _showMessage(context, strings.noAutomaticBackups);
+        return;
+      }
+      final locale = Localizations.localeOf(context).toString();
+      final selected = await showDialog<File>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(strings.selectAutomaticBackup),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final backup in backups)
+                  ListTile(
+                    leading: const Icon(Icons.insert_drive_file_outlined),
+                    title: Text(
+                      DateFormat.yMMMd(locale)
+                          .add_jm()
+                          .format(backup.lastModifiedSync()),
+                    ),
+                    onTap: () => Navigator.pop(context, backup),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(strings.cancel),
+            ),
+          ],
+        ),
+      );
+      if (selected == null || !context.mounted) {
+        return;
+      }
+      final confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              content: Text(strings.restoreConfirm),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: Text(strings.confirm),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!confirmed || !context.mounted) {
+        return;
+      }
+      await service.restoreAutomaticBackup(selected);
+      ref.invalidate(activeVendorsProvider);
+      ref.invalidate(archivedVendorsProvider);
+      ref.invalidate(vendorLedgerProvider);
+      if (context.mounted) {
+        _showMessage(context, strings.restoreSuccess);
+      }
+    } catch (error, stackTrace) {
+      _report(error, stackTrace, 'restore automatic backup');
+      if (context.mounted) {
+        _showMessage(context, strings.errorOccurred);
+      }
+    }
+  }
+
   Future<void> _setReminder(
     BuildContext context,
     WidgetRef ref,
@@ -288,14 +439,7 @@ class _SettingsList extends ConsumerWidget {
     final controller = ref.read(appSettingsProvider.notifier);
     try {
       if (enabled) {
-        final granted = await ReminderService.requestPermissionAndSchedule(
-          hour: settings.reminderHour,
-          minute: settings.reminderMinute,
-          title: strings.reminderTitle,
-          body: strings.reminderBody,
-          channelName: strings.reminderChannel,
-          channelDescription: strings.reminderChannelDescription,
-        );
+        final granted = await ReminderService.requestPermission();
         if (!granted) {
           if (context.mounted) {
             _showMessage(context, strings.notificationPermission);
@@ -339,16 +483,6 @@ class _SettingsList extends ConsumerWidget {
     }
     final controller = ref.read(appSettingsProvider.notifier);
     try {
-      if (settings.reminderEnabled) {
-        await ReminderService.scheduleDaily(
-          hour: selected.hour,
-          minute: selected.minute,
-          title: strings.reminderTitle,
-          body: strings.reminderBody,
-          channelName: strings.reminderChannel,
-          channelDescription: strings.reminderChannelDescription,
-        );
-      }
       await controller.setReminder(
         enabled: settings.reminderEnabled,
         hour: selected.hour,
@@ -381,6 +515,67 @@ class _SettingsList extends ConsumerWidget {
         _showMessage(context, strings.errorOccurred);
       }
     }
+  }
+
+  Future<void> _setAutomaticBackup(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+    bool enabled,
+  ) async {
+    final updated = settings.copyWith(automaticBackupEnabled: enabled);
+    await _runSetting(context, () async {
+      await ref
+          .read(appSettingsProvider.notifier)
+          .setAutomaticBackup(enabled: enabled);
+      await AutoBackupScheduler.configure(updated);
+    });
+  }
+
+  Future<void> _setAutomaticBackupFrequency(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+    AutomaticBackupFrequency frequency,
+  ) async {
+    final updated = settings.copyWith(automaticBackupFrequency: frequency);
+    await _runSetting(context, () async {
+      await ref
+          .read(appSettingsProvider.notifier)
+          .setAutomaticBackup(enabled: true, frequency: frequency);
+      await AutoBackupScheduler.configure(updated);
+    });
+  }
+
+  Future<void> _chooseAutomaticBackupTime(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) async {
+    final selected = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: settings.automaticBackupHour,
+        minute: settings.automaticBackupMinute,
+      ),
+    );
+    if (selected == null || !context.mounted) {
+      return;
+    }
+    final updated = settings.copyWith(
+      automaticBackupHour: selected.hour,
+      automaticBackupMinute: selected.minute,
+    );
+    await _runSetting(context, () async {
+      await ref
+          .read(appSettingsProvider.notifier)
+          .setAutomaticBackup(
+            enabled: settings.automaticBackupEnabled,
+            hour: selected.hour,
+            minute: selected.minute,
+          );
+      await AutoBackupScheduler.configure(updated);
+    });
   }
 
   Future<void> _setPaymentReminder(
