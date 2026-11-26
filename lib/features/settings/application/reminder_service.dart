@@ -1,5 +1,6 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:milk_app/features/settings/application/timezone_identifier.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -117,7 +118,9 @@ class ReminderService {
     }
     tz_data.initializeTimeZones();
     final localTimezone = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(localTimezone.identifier));
+    tz.setLocalLocation(
+      tz.getLocation(timezoneDatabaseIdentifier(localTimezone.identifier)),
+    );
     await _plugin.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),

@@ -7,6 +7,8 @@ import 'package:milk_app/core/utils/formatters.dart';
 import 'package:milk_app/data/database/database_providers.dart';
 import 'package:milk_app/data/database/milk_database.dart';
 import 'package:milk_app/data/repositories/vendor_repository.dart';
+import 'package:milk_app/features/settings/application/app_settings_provider.dart';
+import 'package:milk_app/features/settings/application/reminder_actions.dart';
 import 'package:milk_app/features/vendors/presentation/vendor_list_screen.dart'
     show milkTypeLabel;
 import 'package:milk_app/l10n/app_localizations.dart';
@@ -98,6 +100,11 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
           deliveryTime: _optional(_timeController.text),
           notes: _optional(_notesController.text),
           openingBalancePaise: openingBalancePaise,
+        );
+        await scheduleReminderAfterEntryChange(
+          ref: ref,
+          settings: ref.read(appSettingsProvider).value,
+          strings: strings,
         );
       } else {
         await repository.updateVendor(
@@ -230,8 +237,7 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
                           ChoiceChip(
                             label: Text(milkTypeLabel(strings, type)),
                             selected: _milkType == type,
-                            onSelected: (_) =>
-                                setState(() => _milkType = type),
+                            onSelected: (_) => setState(() => _milkType = type),
                           ),
                       ],
                     ),
@@ -281,8 +287,7 @@ class _VendorFormScreenState extends ConsumerState<VendorFormScreen> {
                         prefixIcon: const Icon(Icons.schedule_rounded),
                         suffixIcon: ValueListenableBuilder(
                           valueListenable: _timeController,
-                          builder: (context, value, child) =>
-                              value.text.isEmpty
+                          builder: (context, value, child) => value.text.isEmpty
                               ? const SizedBox.shrink()
                               : IconButton(
                                   tooltip: strings.clear,

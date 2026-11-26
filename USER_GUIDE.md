@@ -29,7 +29,9 @@
 ## Settings, reminders and backups
 
 - Pick a light, dark or system theme and switch the app language in Settings.
-- Enable the daily reminder and allow Android notifications when prompted.
+- Enable **Remind me if milk is unmarked** in Settings → Reminders and allow
+  Android notifications when prompted. The default time is 8:00 PM; change it
+  there if needed. Android may deliver the reminder a little later.
 - Turn on **Automatic backup** to save copies inside the app on this phone.
   Choose daily, weekly or monthly and a preferred time. Android may defer the
   run; the app keeps the latest seven copies.

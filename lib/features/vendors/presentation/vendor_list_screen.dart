@@ -10,6 +10,8 @@ import 'package:milk_app/domain/billing/billing_calculator.dart';
 import 'package:milk_app/features/reports/data/bill_pdf_service.dart';
 import 'package:milk_app/features/reports/data/report_providers.dart';
 import 'package:milk_app/l10n/app_localizations.dart';
+import 'package:milk_app/features/settings/application/app_settings_provider.dart';
+import 'package:milk_app/features/settings/application/reminder_actions.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 enum _VendorAction { edit, rates, message, delete }
@@ -261,6 +263,11 @@ class _VendorCard extends ConsumerWidget {
         final repository = ref.read(vendorRepositoryProvider);
         try {
           await repository.deleteVendor(vendor.id);
+          await scheduleReminderAfterEntryChange(
+            ref: ref,
+            settings: ref.read(appSettingsProvider).value,
+            strings: strings,
+          );
           if (context.mounted) {
             showAppSnackBar(context, strings.vendorDeleted);
           }
